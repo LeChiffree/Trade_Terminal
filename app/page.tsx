@@ -9,6 +9,7 @@ import {
   type IndicatorResult,
   type MarketPayload,
 } from "@/lib/analysis";
+import type { MarketContextPayload } from "@/lib/market-context";
 
 type NavKey = "Analiz" | "Tarayıcı" | "Alarmlar" | "Geçmiş" | "Ayarlar";
 
@@ -103,6 +104,17 @@ function scoreLabel(score: number) {
 
 function scoreTone(score: number) {
   return score > 12 ? "positive" : score < -12 ? "negative" : "neutral";
+}
+
+function blendDecisionScores(quantScore: number, contextScore: number | null, llmScore: number | null) {
+  if (llmScore !== null && contextScore !== null) return Math.round(quantScore * .65 + contextScore * .20 + llmScore * .15);
+  if (llmScore !== null) return Math.round(quantScore * .80 + llmScore * .20);
+  if (contextScore !== null) return Math.round(quantScore * .80 + contextScore * .20);
+  return quantScore;
+}
+
+function signedScore(score: number) {
+  return `${score > 0 ? "+" : ""}${score}`;
 }
 
 function makeId() {
@@ -268,6 +280,43 @@ function MultiTimeframe({ analyses, current }: { analyses: Record<string, Analys
   );
 }
 
+function MarketContextPanel({ context, loading }: { context: MarketContextPayload | null; loading: boolean }) {
+  const global = context?.global;
+  const fear = context?.fearGreed;
+  const breadth = context?.breadth;
+  const news = context?.news.items ?? [];
+  const overall = context?.scores.overall ?? 0;
+  return (
+    <section className="panel context-panel" aria-busy={loading}>
+      <div className="panel-head">
+        <div><span className="eyebrow">GLOBAL PİYASA BAĞLAMI · KARARA DAHİL</span><h2>{loading ? "Endeksler güncelleniyor…" : context?.scores.label ?? "Bağlam verisi bekleniyor"}</h2></div>
+        <span className={`context-score ${scoreTone(overall)}`}>{context ? signedScore(overall) : "—"} / 100</span>
+      </div>
+      <div className="context-layout">
+        <div className="context-kpis">
+          <article><small>Toplam piyasa değeri</small><strong>{global?.available ? `$${compactFormatter.format(global.totalMarketCap)}` : "—"}</strong><span>Coinranking global</span></article>
+          <article><small>Global 24s hacim</small><strong>{global?.available ? `$${compactFormatter.format(global.total24hVolume)}` : "—"}</strong><span>{global?.available ? `Devir oranı %${priceFormatter.format(global.turnoverRate)}` : "Veri bekleniyor"}</span></article>
+          <article><small>BTC dominansı</small><strong>{global?.available ? `%${priceFormatter.format(global.btcDominance)}` : "—"}</strong><span>{global?.available ? `${compactFormatter.format(global.totalCoins)} aktif coin` : "Rotasyon endeksi"}</span></article>
+          <article><small>Fear & Greed</small><strong className={fear?.available ? scoreTone((fear.value - 50) * 2) : ""}>{fear?.available ? `${fear.value} · ${fear.label}` : "—"}</strong><span>Kaynak: Alternative.me {fear?.available ? `· Δ ${fear.change > 0 ? "+" : ""}${fear.change}` : ""}</span></article>
+          <article><small>İlk 50 piyasa genişliği</small><strong className={breadth?.available ? scoreTone(context?.scores.breadth ?? 0) : ""}>{breadth?.available ? `%${priceFormatter.format(breadth.advanceRatio)} yükselen` : "—"}</strong><span>{breadth?.available ? `${breadth.advancers} ↑ · ${breadth.decliners} ↓ · Ort. ${breadth.averageChange > 0 ? "+" : ""}${priceFormatter.format(breadth.averageChange)}%` : "Binance hacim evreni"}</span></article>
+          <article><small>Haber duyarlılığı</small><strong className={scoreTone(context?.scores.news ?? 0)}>{context ? signedScore(context.scores.news) : "—"}</strong><span>{news.length ? `${news.length} güncel global başlık` : "GDELT akışı bekleniyor"}</span></article>
+        </div>
+        <div className="news-feed">
+          <div className="news-head"><b>Son global kripto haberleri</b><span>{context?.news.provider === "none" || !context ? "GDELT / Google News" : context.news.provider} · Güncel akış</span></div>
+          {!news.length && <div className="news-empty">{loading ? "Haber akışı taranıyor…" : "Bu güncellemede haber akışı alınamadı; haber puanı karara katılmadı."}</div>}
+          {news.map((item) => (
+            <a href={item.url} target="_blank" rel="noreferrer noopener" key={`${item.domain}-${item.title}`}>
+              <i className={scoreTone(item.sentiment)}>{item.sentiment > 0 ? "↑" : item.sentiment < 0 ? "↓" : "•"}</i>
+              <span><b>{item.title}</b><small>{item.domain} · {new Date(item.publishedAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</small></span>
+            </a>
+          ))}
+        </div>
+      </div>
+      <p className="context-method">Final karar; teknik quant skoru, global bağlam skoru ve yalnızca manuel çalıştırılırsa Gemini görüşünü ağırlıklı olarak birleştirir. Hacim tek başına yön sinyali sayılmaz.</p>
+    </section>
+  );
+}
+
 function AnalysisView({
   market,
   analysis,
@@ -275,6 +324,8 @@ function AnalysisView({
   llm,
   llmLoading,
   loading,
+  context,
+  contextLoading,
   runLlmReview,
 }: {
   market: MarketPayload;
@@ -283,11 +334,14 @@ function AnalysisView({
   llm: LlmReview | null;
   llmLoading: boolean;
   loading: boolean;
+  context: MarketContextPayload | null;
+  contextLoading: boolean;
   runLlmReview: () => void;
 }) {
   const llmScore = llm?.direction_score ?? 0;
+  const contextScore = context && context.source !== "fallback" ? context.scores.overall : null;
   const conflict = llm?.configured && Math.sign(llmScore) !== Math.sign(analysis.quantScore) && Math.abs(llmScore) >= 20 && Math.abs(analysis.quantScore) >= 20;
-  const finalScore = llm?.configured ? Math.round(analysis.quantScore * .8 + llmScore * .2) : analysis.quantScore;
+  const finalScore = blendDecisionScores(analysis.quantScore, contextScore, llm?.configured ? llmScore : null);
   const finalLabel = conflict ? "CONFLICT / WAIT" : scoreLabel(finalScore);
   const reasons = llm?.configured ? llm.top_reasons : analysis.reasons;
   const risks = llm?.configured ? [...llm.contradictions, ...llm.risk_flags] : analysis.contradictions;
@@ -313,7 +367,8 @@ function AnalysisView({
             <ScoreRing score={analysis.quantScore} label="Quant engine" tone="mint" />
             <ScoreRing score={llmScore} label={llm?.configured ? `LLM · ${llm.provider}` : "Demo approver"} tone="violet" muted={!llm} />
           </div>
-          <button className="llm-run" disabled={llmLoading || loading} onClick={runLlmReview}>{loading ? "Piyasa verisi bekleniyor…" : llmLoading ? "Gemini değerlendiriyor…" : llm?.configured ? "Gemini yorumunu yenile" : "Gemini değerlendirmesi iste"}</button>
+          <button className="llm-run" disabled={llmLoading || loading || contextLoading} onClick={runLlmReview}>{loading ? "Piyasa verisi bekleniyor…" : contextLoading ? "Global bağlam bekleniyor…" : llmLoading ? "Gemini değerlendiriyor…" : llm?.configured ? "Gemini yorumunu yenile" : "Gemini değerlendirmesi iste"}</button>
+          <div className="context-impact"><span>Global bağlam</span><strong className={contextScore === null ? "neutral" : scoreTone(contextScore)}>{contextScore === null ? "—" : signedScore(contextScore)}</strong><small>{context?.scores.label ?? "Veri bekleniyor"}</small></div>
           <div className={`consensus ${conflict ? "conflict" : ""}`}><div><small>FINAL CONSENSUS</small><strong>{finalScore > 0 ? "+" : ""}{finalScore}</strong></div><span>{finalLabel}</span></div>
           <div className="confidence"><div><span>Güven</span><b>%{llm?.configured ? Math.round(analysis.confidence * .75 + llm.confidence * .25) : analysis.confidence}</b></div><div className="meter"><i style={{ width: `${analysis.confidence}%` }} /></div></div>
           <div className="reason-list">
@@ -323,6 +378,7 @@ function AnalysisView({
           {llm && <div className={`llm-note ${llm.configured ? "" : "demo"}`}><b>{llm.configured ? "LLM yorumu" : "Demo modu"}</b><p>{llm.summary_tr}</p></div>}
         </aside>
       </div>
+      <MarketContextPanel context={context} loading={contextLoading} />
       <MultiTimeframe analyses={multi} current={analysis.interval} />
       <IndicatorTable indicators={analysis.indicators} />
     </>
@@ -426,11 +482,13 @@ export default function Home() {
   const [logs, setLogsState] = useState<SignalLog[]>([]);
   const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>(FALLBACK_SYMBOLS);
   const [symbolsLoading, setSymbolsLoading] = useState(true);
+  const [marketContext, setMarketContext] = useState<MarketContextPayload | null>(null);
+  const [contextLoading, setContextLoading] = useState(true);
   const [freshnessNow, setFreshnessNow] = useState(0);
   const latestMarketRef = useRef(market);
   const analysis = useMemo(() => analyzeMarket(market), [market]);
   const lastCandleOpenTime = market.candles.at(-1)?.openTime;
-  const currentContextKey = `${market.symbol}-${market.interval}-${lastCandleOpenTime ?? 0}`;
+  const currentContextKey = `${market.symbol}-${market.interval}-${lastCandleOpenTime ?? 0}-${marketContext?.updatedAt ?? 0}`;
   const displayedLlm = llmContextKey === currentContextKey ? llm : null;
 
   const persistAlerts = useCallback((next: AlertRule[]) => {
@@ -492,6 +550,29 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
+    const loadContext = async () => {
+      setContextLoading(true);
+      try {
+        const response = await fetch("/api/context", { cache: "no-store" });
+        if (!response.ok) throw new Error("Market context failed");
+        const nextContext = await response.json() as MarketContextPayload;
+        if (!cancelled) setMarketContext(nextContext);
+      } catch {
+        // Keep the last successful context; a missing feed must not stop technical analysis.
+      } finally {
+        if (!cancelled) setContextLoading(false);
+      }
+    };
+    void loadContext();
+    const timer = window.setInterval(loadContext, 10 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       setLoading(true);
       try {
@@ -532,6 +613,40 @@ export default function Home() {
   const runLlmReview = useCallback(async () => {
     setLlmLoading(true);
     try {
+      const macroFacts: Array<{ name: string; family: string; correlationGroup: string; value: string; state: string; interpretation: string; score: number }> = [];
+      if (marketContext?.fearGreed.available) {
+        macroFacts.push({
+          name: "Fear & Greed",
+          family: "Global bağlam",
+          correlationGroup: "macro-sentiment",
+          value: String(marketContext.fearGreed.value),
+          state: marketContext.fearGreed.label,
+          interpretation: `Alternative.me Fear & Greed ${marketContext.fearGreed.value}; önceki değer ${marketContext.fearGreed.previous}.`,
+          score: marketContext.scores.fear,
+        });
+      }
+      if (marketContext?.breadth.available) {
+        macroFacts.push({
+          name: "İlk 50 piyasa genişliği",
+          family: "Global bağlam",
+          correlationGroup: "macro-breadth",
+          value: `%${priceFormatter.format(marketContext.breadth.advanceRatio)}`,
+          state: marketContext.scores.breadth > 12 ? "Risk iştahı" : marketContext.scores.breadth < -12 ? "Riskten kaçış" : "Dengeli",
+          interpretation: `${marketContext.breadth.advancers} yükselen, ${marketContext.breadth.decliners} düşen; ortalama değişim ${marketContext.breadth.averageChange > 0 ? "+" : ""}${priceFormatter.format(marketContext.breadth.averageChange)}%.`,
+          score: marketContext.scores.breadth,
+        });
+      }
+      if (marketContext?.news.available) {
+        macroFacts.push({
+          name: "Global haber duyarlılığı",
+          family: "Global bağlam",
+          correlationGroup: "macro-news",
+          value: signedScore(marketContext.scores.news),
+          state: marketContext.scores.news > 12 ? "Pozitif" : marketContext.scores.news < -12 ? "Negatif" : "Nötr",
+          interpretation: `${marketContext.news.items.length} güncel global kripto başlığının deterministik duyarlılık özeti.`,
+          score: marketContext.scores.news,
+        });
+      }
       const response = await fetch("/api/llm-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -540,14 +655,18 @@ export default function Home() {
           interval: analysis.interval,
           regime: analysis.regime,
           levels: { supports: analysis.supports, resistances: analysis.resistances, atr: analysis.atr },
-          facts: analysis.indicators.map((item) => ({ name: item.name, family: item.family, correlationGroup: item.correlationGroup, value: item.value, state: item.state, interpretation: item.interpretation, score: item.score })),
+          facts: [
+            ...analysis.indicators.map((item) => ({ name: item.name, family: item.family, correlationGroup: item.correlationGroup, value: item.value, state: item.state, interpretation: item.interpretation, score: item.score })),
+            ...macroFacts,
+          ],
         }),
       });
       if (!response.ok) throw new Error("LLM review failed");
       const review = await response.json() as LlmReview;
       setLlm(review);
       setLlmContextKey(currentContextKey);
-      const finalScore = review.configured ? Math.round(analysis.quantScore * .8 + review.direction_score * .2) : analysis.quantScore;
+      const contextScore = marketContext && marketContext.source !== "fallback" ? marketContext.scores.overall : null;
+      const finalScore = blendDecisionScores(analysis.quantScore, contextScore, review.configured ? review.direction_score : null);
       const entry: SignalLog = { id: makeId(), timestamp: Date.now(), symbol: analysis.symbol, interval: analysis.interval, quantScore: analysis.quantScore, llmScore: review.configured ? review.direction_score : null, finalScore, direction: scoreLabel(finalScore), approval: review.approval };
       persistLog(entry);
     } catch {
@@ -556,7 +675,7 @@ export default function Home() {
     } finally {
       setLlmLoading(false);
     }
-  }, [analysis, currentContextKey, persistLog]);
+  }, [analysis, currentContextKey, marketContext, persistLog]);
 
   useEffect(() => {
     const now = Date.now();
@@ -641,7 +760,7 @@ export default function Home() {
 
         <div className="timeframe-row"><div className="segmented" aria-label="Zaman dilimi">{TIMEFRAMES.map((item) => <button key={item} className={timeframe === item ? "active" : ""} onClick={() => changeTimeframe(item)}>{item}</button>)}</div><div className="candle-state"><span /> Kapanmış mum analizi <b>{timeframe}</b> · Kalite %{analysis.dataQuality}</div></div>
 
-        {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={displayedLlm} llmLoading={llmLoading} loading={loading} runLlmReview={runLlmReview} />}
+        {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={displayedLlm} llmLoading={llmLoading} loading={loading} context={marketContext} contextLoading={contextLoading} runLlmReview={runLlmReview} />}
         {activeNav === "Tarayıcı" && <ScannerView rows={symbolOptions} loading={symbolsLoading} onSelect={selectScannerSymbol} />}
         {activeNav === "Alarmlar" && <AlertsView key={`${market.symbol}-${market.interval}`} alerts={alerts} setAlerts={persistAlerts} market={market} gmailConfigured={gmailStatus.configured} />}
         {activeNav === "Geçmiş" && <HistoryView logs={logs} />}

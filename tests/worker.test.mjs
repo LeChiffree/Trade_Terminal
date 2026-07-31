@@ -101,3 +101,23 @@ test("market route changes both symbol and timeframe series", async () => {
     second.candles.slice(-10).map((item) => item.close),
   );
 });
+
+test("returns a bounded global market context for the decision engine", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/context"),
+    env,
+    ctx,
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.fearGreed.attribution, "Alternative.me");
+  assert.ok(body.scores.overall >= -100 && body.scores.overall <= 100);
+  assert.ok(body.scores.fear >= -100 && body.scores.fear <= 100);
+  assert.ok(body.scores.breadth >= -100 && body.scores.breadth <= 100);
+  assert.ok(body.scores.news >= -100 && body.scores.news <= 100);
+  assert.ok(["GDELT", "Google News", "none"].includes(body.news.provider));
+  assert.ok(body.news.items.length <= 6);
+  assert.ok(body.news.items.every((item) => item.url.startsWith("https://")));
+});
