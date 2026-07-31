@@ -9,6 +9,7 @@ import {
   type IndicatorResult,
   type MarketPayload,
 } from "@/lib/analysis";
+import { blendDecisionScores, decisionContextScore } from "@/lib/decision";
 import type { MarketContextPayload } from "@/lib/market-context";
 
 type NavKey = "Analiz" | "Tarayıcı" | "Alarmlar" | "Geçmiş" | "Ayarlar";
@@ -60,6 +61,49 @@ type SymbolOption = {
   quoteVolume: number;
 };
 
+type ScannerStatus = {
+  configured: boolean;
+  error?: string;
+  config?: {
+    enabled: number;
+    last_heartbeat: number;
+    last_error: string | null;
+    scans_completed: number;
+    alerts_sent: number;
+    threshold: number;
+    minimum_confidence: number;
+  } | null;
+  intervals: Array<{
+    interval: string;
+    cadence_seconds: number;
+    last_completed_at: number;
+    last_duration_ms: number;
+    last_scanned_count: number;
+    last_error: string | null;
+  }>;
+  leaders: Array<{
+    symbol: string;
+    base_asset: string;
+    interval: string;
+    final_score: number;
+    quant_score: number;
+    context_score: number | null;
+    confidence: number;
+    direction: string;
+    price: number;
+    last_scanned_at: number;
+  }>;
+  alerts: Array<{
+    symbol: string;
+    interval: string;
+    direction: string;
+    final_score: number;
+    confidence: number;
+    sent_at: number;
+    status: string;
+  }>;
+};
+
 const NAV: { label: NavKey; glyph: string }[] = [
   { label: "Analiz", glyph: "⌁" },
   { label: "Tarayıcı", glyph: "⌕" },
@@ -104,22 +148,6 @@ function scoreLabel(score: number) {
 
 function scoreTone(score: number) {
   return score > 12 ? "positive" : score < -12 ? "negative" : "neutral";
-}
-
-function blendDecisionScores(quantScore: number, contextScore: number | null, llmScore: number | null) {
-  if (llmScore !== null && contextScore !== null) return Math.round(quantScore * .65 + contextScore * .20 + llmScore * .15);
-  if (llmScore !== null) return Math.round(quantScore * .80 + llmScore * .20);
-  if (contextScore !== null) return Math.round(quantScore * .80 + contextScore * .20);
-  return quantScore;
-}
-
-function decisionContextScore(context: MarketContextPayload | null, symbol: string) {
-  if (!context || context.source === "fallback") return null;
-  if (!context.global.available) return context.scores.overall;
-  const dominanceDeviation = Math.min(15, Math.max(-15, context.global.btcDominance - 50));
-  const rotationBias = symbol.startsWith("BTC") ? dominanceDeviation * 1.5 : -dominanceDeviation;
-  const activityMultiplier = Math.min(1.15, Math.max(.9, .85 + context.global.turnoverRate * .06));
-  return Math.round(Math.min(100, Math.max(-100, (context.scores.overall + rotationBias * .25) * activityMultiplier)));
 }
 
 function signedScore(score: number) {
@@ -397,15 +425,52 @@ function AnalysisView({
   );
 }
 
-function ScannerView({ rows, onSelect, loading }: { rows: SymbolOption[]; onSelect: (symbol: string) => void; loading: boolean }) {
+function cadenceLabel(seconds: number) {
+  if (seconds < 60) return `${seconds} sn`;
+  if (seconds < 3_600) return `${seconds / 60} dk`;
+  return `${seconds / 3_600} sa`;
+}
+
+function ScannerView({ rows, onSelect, loading, status, now }: { rows: SymbolOption[]; onSelect: (symbol: string) => void; loading: boolean; status: ScannerStatus | null; now: number }) {
+  const heartbeatAge = status?.config?.last_heartbeat
+    ? Math.max(0, Math.round((now - status.config.last_heartbeat) / 1_000))
+    : null;
+  const live = Boolean(status?.configured && status.config?.enabled && heartbeatAge !== null && heartbeatAge < 180);
+  const intervals = status?.intervals?.length ? status.intervals : [
+    { interval: "5m", cadence_seconds: 15, last_completed_at: 0, last_duration_ms: 0, last_scanned_count: 0, last_error: null },
+    { interval: "15m", cadence_seconds: 45, last_completed_at: 0, last_duration_ms: 0, last_scanned_count: 0, last_error: null },
+    { interval: "1h", cadence_seconds: 120, last_completed_at: 0, last_duration_ms: 0, last_scanned_count: 0, last_error: null },
+    { interval: "4h", cadence_seconds: 300, last_completed_at: 0, last_duration_ms: 0, last_scanned_count: 0, last_error: null },
+    { interval: "1d", cadence_seconds: 900, last_completed_at: 0, last_duration_ms: 0, last_scanned_count: 0, last_error: null },
+    { interval: "1w", cadence_seconds: 3_600, last_completed_at: 0, last_duration_ms: 0, last_scanned_count: 0, last_error: null },
+  ];
   return (
-    <section className="panel module-panel">
-      <div className="panel-head"><div><span className="eyebrow">PİYASA TARAYICI · STABLECOIN HARİÇ</span><h2>USDT hacmine göre ilk 50 coin</h2></div><span className="data-note">{loading ? "Binance listesi güncelleniyor…" : "24 saatlik hacim sırası"}</span></div>
-      <div className="scanner-table">
-        <div className="scanner-row scanner-head"><span>#</span><span>Parite</span><span>Son fiyat</span><span>24s değişim</span><span>24s hacim</span><span /></div>
-        {rows.slice(0, 50).map((row, index) => <div className="scanner-row" key={row.symbol}><span>{index + 1}</span><span><b>{row.baseAsset}/USDT</b><small>Binance Spot</small></span><span>{formatPrice(row.lastPrice)}</span><span className={row.priceChangePercent > 0 ? "positive" : row.priceChangePercent < 0 ? "negative" : "neutral"}>{row.lastPrice ? `${row.priceChangePercent > 0 ? "+" : ""}${priceFormatter.format(row.priceChangePercent)}%` : "—"}</span><span>{row.quoteVolume ? `$${compactFormatter.format(row.quoteVolume)}` : "—"}</span><span><button onClick={() => onSelect(row.symbol)}>Analiz et →</button></span></div>)}
-      </div>
-    </section>
+    <>
+      <section className="panel module-panel scanner-engine">
+        <div className="panel-head"><div><span className="eyebrow">24/7 OTOMATİK SİNYAL MOTORU</span><h2>Zaman dilimine özel sürekli puanlama</h2></div><span className={live ? "integration-ok" : "integration-warn"}>{live ? "Canlı" : status?.configured ? "Başlatılıyor" : "Bağlantı bekliyor"}</span></div>
+        <div className="scanner-engine-grid">
+          <article><small>Son kalp atışı</small><strong>{heartbeatAge === null ? "—" : `${heartbeatAge} sn önce`}</strong><span>Tarayıcı açık olmasa da sunucuda çalışır.</span></article>
+          <article><small>Toplam puanlama</small><strong>{compactFormatter.format(status?.config?.scans_completed ?? 0)}</strong><span>Yalnızca canlı Binance kapanmış mumları.</span></article>
+          <article><small>Gönderilen sinyal</small><strong>{status?.config?.alerts_sent ?? 0}</strong><span>Eşik ±{status?.config?.threshold ?? 55} · güven %{status?.config?.minimum_confidence ?? 70}</span></article>
+          <article><small>LLM kullanımı</small><strong>0 istek</strong><span>Gemini yalnızca manuel analiz düğmesinde.</span></article>
+        </div>
+        <div className="scanner-cadences">
+          {intervals.map((item) => <span key={item.interval}><b>{item.interval}</b><small>{cadenceLabel(item.cadence_seconds)}</small><i className={item.last_completed_at ? "done" : ""} /></span>)}
+        </div>
+        {status?.config?.last_error && <p className="scanner-error">{status.config.last_error}</p>}
+        {!!status?.leaders?.length && <div className="leader-board">
+          <div className="leader-row leader-head"><span>Güçlü adaylar</span><span>Frame</span><span>Final</span><span>Quant</span><span>Güven</span><span>Son ölçüm</span></div>
+          {status.leaders.slice(0, 10).map((item) => <div className="leader-row" key={`${item.symbol}-${item.interval}`}><span><b>{item.base_asset}/USDT</b></span><span>{item.interval}</span><span className={scoreTone(item.final_score)}>{signedScore(item.final_score)}</span><span>{signedScore(item.quant_score)}</span><span>%{item.confidence}</span><span>{new Date(item.last_scanned_at).toLocaleTimeString("tr-TR")}</span></div>)}
+        </div>}
+      </section>
+      <section className="panel module-panel">
+        <div className="panel-head"><div><span className="eyebrow">PİYASA TARAYICI · STABLECOIN HARİÇ</span><h2>USDT hacmine göre ilk 50 coin</h2></div><span className="data-note">{loading ? "Binance listesi güncelleniyor…" : "24 saatlik hacim sırası"}</span></div>
+        <div className="scanner-table">
+          <div className="scanner-row scanner-head"><span>#</span><span>Parite</span><span>Son fiyat</span><span>24s değişim</span><span>24s hacim</span><span /></div>
+          {rows.slice(0, 50).map((row, index) => <div className="scanner-row" key={row.symbol}><span>{index + 1}</span><span><b>{row.baseAsset}/USDT</b><small>Binance Spot</small></span><span>{formatPrice(row.lastPrice)}</span><span className={row.priceChangePercent > 0 ? "positive" : row.priceChangePercent < 0 ? "negative" : "neutral"}>{row.lastPrice ? `${row.priceChangePercent > 0 ? "+" : ""}${priceFormatter.format(row.priceChangePercent)}%` : "—"}</span><span>{row.quoteVolume ? `$${compactFormatter.format(row.quoteVolume)}` : "—"}</span><span><button onClick={() => onSelect(row.symbol)}>Analiz et →</button></span></div>)}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -433,7 +498,7 @@ function AlertsView({ alerts, setAlerts, market, gmailConfigured }: { alerts: Al
         <label>Fiyat seviyesi<input type="number" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label>
         <div className="builder-preview">IF <b>{market.symbol}</b> {direction === "above" ? ">" : "<"} <b>{formatPrice(Number(threshold))}</b> THEN <b>uygulama + Gmail</b></div>
         <button className="primary-button large" onClick={addAlert}>Alarmı kaydet</button>
-        <p className="helper">Bu deneme sürümünde kurallar tarayıcıda saklanır ve uygulama açıkken değerlendirilir. 24/7 sunucu taraması sonraki collector sürümünde etkinleşecek.</p>
+        <p className="helper">Fiyat kuralları bu cihazda saklanır. Güçlü teknik fırsatlar için ayrı 24/7 sunucu tarayıcısı otomatik çalışır ve Gmail bildirimi gönderir.</p>
       </section>
       <section className="panel module-panel">
         <div className="panel-head"><div><span className="eyebrow">AKTİF ALARMLAR</span><h2>{alerts.length} kayıtlı kural</h2></div></div>
@@ -495,6 +560,7 @@ export default function Home() {
   const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>(FALLBACK_SYMBOLS);
   const [symbolsLoading, setSymbolsLoading] = useState(true);
   const [marketContext, setMarketContext] = useState<MarketContextPayload | null>(null);
+  const [scannerStatus, setScannerStatus] = useState<ScannerStatus | null>(null);
   const [contextLoading, setContextLoading] = useState(true);
   const [freshnessNow, setFreshnessNow] = useState(0);
   const latestMarketRef = useRef(market);
@@ -558,6 +624,25 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setInterval(() => setFreshnessNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    const loadScannerStatus = async () => {
+      try {
+        const response = await fetch("/api/scanner", { cache: "no-store" });
+        const nextStatus = await response.json() as ScannerStatus;
+        if (!disposed) setScannerStatus(nextStatus);
+      } catch {
+        // Keep the last valid scanner snapshot when status polling is interrupted.
+      }
+    };
+    void loadScannerStatus();
+    const timer = window.setInterval(loadScannerStatus, 15_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -784,7 +869,7 @@ export default function Home() {
         <div className="timeframe-row"><div className="segmented" aria-label="Zaman dilimi">{TIMEFRAMES.map((item) => <button key={item} className={timeframe === item ? "active" : ""} onClick={() => changeTimeframe(item)}>{item}</button>)}</div><div className="candle-state"><span /> Kapanmış mum analizi <b>{timeframe}</b> · Kalite %{analysis.dataQuality}</div></div>
 
         {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={displayedLlm} llmLoading={llmLoading} loading={loading} context={marketContext} contextLoading={contextLoading} runLlmReview={runLlmReview} />}
-        {activeNav === "Tarayıcı" && <ScannerView rows={symbolOptions} loading={symbolsLoading} onSelect={selectScannerSymbol} />}
+        {activeNav === "Tarayıcı" && <ScannerView rows={symbolOptions} loading={symbolsLoading} onSelect={selectScannerSymbol} status={scannerStatus} now={freshnessNow} />}
         {activeNav === "Alarmlar" && <AlertsView key={`${market.symbol}-${market.interval}`} alerts={alerts} setAlerts={persistAlerts} market={market} gmailConfigured={gmailStatus.configured} />}
         {activeNav === "Geçmiş" && <HistoryView logs={logs} />}
         {activeNav === "Ayarlar" && <SettingsView llmStatus={llmStatus} gmailStatus={gmailStatus} onTestGmail={testGmail} gmailMessage={gmailMessage} />}

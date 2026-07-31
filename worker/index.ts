@@ -1,10 +1,14 @@
 /** Cloudflare Worker entry point for QuantScope. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { runScheduledScannerMinute } from "../lib/background-scanner";
 
 interface Env {
   ASSETS: Fetcher;
   DB?: D1Database;
+  FASTACT_EMAIL_SENDER?: string;
+  FASTACT_EMAIL_APP_PASSWORD?: string;
+  FASTACT_EMAIL_RECIPIENT?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -42,6 +46,19 @@ const worker = {
     }
 
     return withSecurityHeaders(await handler.fetch(request, env, ctx));
+  },
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    const scheduledMinute = Math.floor(Date.now() / 60_000) * 60_000;
+    try {
+      await runScheduledScannerMinute(
+        env,
+        scheduledMinute,
+        async (delayMs) => await scheduler.wait(delayMs),
+      );
+    } catch (error) {
+      console.error("Scheduled scanner failed", error);
+      throw error;
+    }
   },
 };
 

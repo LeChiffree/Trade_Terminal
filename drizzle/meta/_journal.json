@@ -1,5 +1,20 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785525829572,
+      "tag": "0000_black_fabian_cortez",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785526800828,
+      "tag": "0001_round_eddie_brock",
+      "breakpoints": true
+    }
+  ]
 }

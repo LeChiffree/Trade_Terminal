@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function loadWorker() {
@@ -33,6 +34,22 @@ test("renders the QuantScope application shell and production metadata", async (
   assert.match(html, /<html[^>]*lang=["']tr["']/i);
   assert.match(html, /QuantScope Trade Terminal/);
   assert.doesNotMatch(html, /codex-preview/i);
+});
+
+test("packages the persistent scheduled scanner", async () => {
+  const worker = await loadWorker();
+  const wrangler = JSON.parse(
+    await readFile(new URL("../dist/server/wrangler.json", import.meta.url), "utf8"),
+  );
+  const hosting = JSON.parse(
+    await readFile(new URL("../dist/.openai/hosting.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(typeof worker.scheduled, "function");
+  assert.deepEqual(wrangler.triggers.crons, ["* * * * *"]);
+  assert.equal(wrangler.limits.subrequests, 1000);
+  assert.equal(hosting.d1, "DB");
+  assert.equal(wrangler.d1_databases[0].binding, "DB");
 });
 
 test("rejects malformed Gemini review requests", async () => {

@@ -56,7 +56,7 @@ async function fetchJson(path: string) {
   throw new Error("Market data unavailable");
 }
 
-function parseCandles(rows: unknown, now = Date.now()): Candle[] {
+function parseCandles(rows: unknown, now = Date.now(), closedOnly = true): Candle[] {
   if (!Array.isArray(rows)) return [];
   return rows.map((row) => {
     const item = row as Array<string | number>;
@@ -75,7 +75,7 @@ function parseCandles(rows: unknown, now = Date.now()): Candle[] {
   }).filter((candle) =>
     Number.isFinite(candle.openTime) &&
     Number.isFinite(candle.closeTime) &&
-    candle.closeTime < now &&
+    (!closedOnly || candle.openTime <= now) &&
     Number.isFinite(candle.open) &&
     Number.isFinite(candle.high) &&
     Number.isFinite(candle.low) &&
@@ -242,6 +242,18 @@ export async function fetchBinanceCandles(symbol: string, interval: string, limi
     const rows = await fetchJson(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${requestedLimit + 1}`);
     const candles = parseCandles(rows).slice(-requestedLimit);
     if (candles.length < 50) throw new Error("Insufficient candle history");
+    return { candles, source: "binance" as const };
+  } catch {
+    return { candles: makeDemoMarket(symbol, interval).candles, source: "demo" as const };
+  }
+}
+
+export async function fetchBinanceLiveCandles(symbol: string, interval: string, limit = 260) {
+  try {
+    const requestedLimit = Math.min(499, Math.max(50, Math.trunc(limit)));
+    const rows = await fetchJson(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${requestedLimit}`);
+    const candles = parseCandles(rows, Date.now(), false).slice(-requestedLimit);
+    if (candles.length < 50) throw new Error("Insufficient live candle history");
     return { candles, source: "binance" as const };
   } catch {
     return { candles: makeDemoMarket(symbol, interval).candles, source: "demo" as const };
