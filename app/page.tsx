@@ -449,7 +449,7 @@ function ScannerView({ rows, onSelect, loading, status, now }: { rows: SymbolOpt
       <section className="panel module-panel scanner-engine">
         <div className="panel-head"><div><span className="eyebrow">24/7 OTOMATİK SİNYAL MOTORU</span><h2>Zaman dilimine özel sürekli puanlama</h2></div><span className={live ? "integration-ok" : "integration-warn"}>{live ? "Canlı" : status?.configured ? "Başlatılıyor" : "Bağlantı bekliyor"}</span></div>
         <div className="scanner-engine-grid">
-          <article><small>Son kalp atışı</small><strong>{heartbeatAge === null ? "—" : `${heartbeatAge} sn önce`}</strong><span>Tarayıcı açık olmasa da sunucuda çalışır.</span></article>
+          <article><small>Son kalp atışı</small><strong>{heartbeatAge === null ? "—" : `${heartbeatAge} sn önce`}</strong><span>Tarayıcı kapalıyken de masaüstü görevi üzerinden çalışır.</span></article>
           <article><small>Toplam puanlama</small><strong>{compactFormatter.format(status?.config?.scans_completed ?? 0)}</strong><span>Yalnızca canlı Binance kapanmış mumları.</span></article>
           <article><small>Gönderilen sinyal</small><strong>{status?.config?.alerts_sent ?? 0}</strong><span>Eşik ±{status?.config?.threshold ?? 55} · güven %{status?.config?.minimum_confidence ?? 70}</span></article>
           <article><small>LLM kullanımı</small><strong>0 istek</strong><span>Gemini yalnızca manuel analiz düğmesinde.</span></article>

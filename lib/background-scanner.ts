@@ -22,6 +22,7 @@ export const SCANNER_INTERVALS = [
 
 export type ScannerEnv = {
   DB?: D1Database;
+  SCANNER_TRIGGER_KEY?: string;
   FASTACT_EMAIL_SENDER?: string;
   FASTACT_EMAIL_APP_PASSWORD?: string;
   FASTACT_EMAIL_RECIPIENT?: string;

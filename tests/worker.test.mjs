@@ -5,7 +5,7 @@ import test from "node:test";
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${Math.random()}`);
-  return await import(workerUrl.href);
+  return (await import(workerUrl.href)).default;
 }
 
 const env = {
@@ -20,7 +20,7 @@ const ctx = {
 };
 
 test("renders the QuantScope application shell and production metadata", async () => {
-  const { default: worker } = await loadWorker();
+  const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/", { headers: { accept: "text/html" } }),
     env,
@@ -37,7 +37,7 @@ test("renders the QuantScope application shell and production metadata", async (
 });
 
 test("packages the persistent scheduled scanner", async () => {
-  const { default: worker, ScannerCoordinator } = await loadWorker();
+  const worker = await loadWorker();
   const wrangler = JSON.parse(
     await readFile(new URL("../dist/server/wrangler.json", import.meta.url), "utf8"),
   );
@@ -48,21 +48,12 @@ test("packages the persistent scheduled scanner", async () => {
   assert.equal(typeof worker.scheduled, "function");
   assert.deepEqual(wrangler.triggers.crons, ["* * * * *"]);
   assert.equal(wrangler.limits.subrequests, 1000);
-  assert.equal(typeof ScannerCoordinator, "function");
-  assert.equal(
-    wrangler.durable_objects.bindings[0].name,
-    "SCANNER_COORDINATOR",
-  );
-  assert.equal(
-    wrangler.migrations[0].new_sqlite_classes[0],
-    "ScannerCoordinator",
-  );
   assert.equal(hosting.d1, "DB");
   assert.equal(wrangler.d1_databases[0].binding, "DB");
 });
 
 test("rejects malformed Gemini review requests", async () => {
-  const { default: worker } = await loadWorker();
+  const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/api/llm-review", {
       method: "POST",
@@ -78,7 +69,7 @@ test("rejects malformed Gemini review requests", async () => {
 });
 
 test("rejects incomplete email requests before sending", async () => {
-  const { default: worker } = await loadWorker();
+  const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/api/email", {
       method: "POST",
@@ -94,8 +85,21 @@ test("rejects incomplete email requests before sending", async () => {
   assert.equal(typeof body.error, "string");
 });
 
+test("keeps the background scanner trigger private", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/scanner/run", { method: "POST" }),
+    env,
+    ctx,
+  );
+
+  assert.ok([401, 503].includes(response.status));
+  const body = await response.json();
+  assert.equal(typeof body.error, "string");
+});
+
 test("returns 50 non-stablecoin USDT markets", async () => {
-  const { default: worker } = await loadWorker();
+  const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/api/symbols"),
     env,
@@ -111,7 +115,7 @@ test("returns 50 non-stablecoin USDT markets", async () => {
 });
 
 test("market route changes both symbol and timeframe series", async () => {
-  const { default: worker } = await loadWorker();
+  const worker = await loadWorker();
   const [firstResponse, secondResponse] = await Promise.all([
     worker.fetch(new Request("http://localhost/api/market?symbol=BTCUSDT&interval=5m"), env, ctx),
     worker.fetch(new Request("http://localhost/api/market?symbol=ETHUSDT&interval=1h"), env, ctx),
@@ -129,7 +133,7 @@ test("market route changes both symbol and timeframe series", async () => {
 });
 
 test("returns a bounded global market context for the decision engine", async () => {
-  const { default: worker } = await loadWorker();
+  const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/api/context"),
     env,

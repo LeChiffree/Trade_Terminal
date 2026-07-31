@@ -20,20 +20,6 @@ const localBindingConfig = {
   limits: {
     subrequests: 1000,
   },
-  durable_objects: {
-    bindings: [
-      {
-        name: "SCANNER_COORDINATOR",
-        class_name: "ScannerCoordinator",
-      },
-    ],
-  },
-  migrations: [
-    {
-      tag: "scanner-coordinator-v1",
-      new_sqlite_classes: ["ScannerCoordinator"],
-    },
-  ],
   d1_databases: d1
     ? [
         {

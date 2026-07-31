@@ -1,15 +1,14 @@
 /** Cloudflare Worker entry point for QuantScope. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import {
-  runScannerTick,
-  runScheduledScannerMinute,
-  type ScannerEnv,
-} from "../lib/background-scanner";
+import { runScheduledScannerMinute } from "../lib/background-scanner";
 
-interface Env extends ScannerEnv {
+interface Env {
   ASSETS: Fetcher;
-  SCANNER_COORDINATOR?: DurableObjectNamespace;
+  DB?: D1Database;
+  FASTACT_EMAIL_SENDER?: string;
+  FASTACT_EMAIL_APP_PASSWORD?: string;
+  FASTACT_EMAIL_RECIPIENT?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -24,68 +23,6 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
-const SCANNER_OBJECT_NAME = "global-market-scanner";
-const SCANNER_ALARM_CADENCE_MS = 15_000;
-
-function nextScannerAlarm(now = Date.now()) {
-  return (
-    Math.floor(now / SCANNER_ALARM_CADENCE_MS + 1) *
-    SCANNER_ALARM_CADENCE_MS
-  );
-}
-
-async function startScannerCoordinator(namespace?: DurableObjectNamespace) {
-  if (!namespace) return;
-  const response = await namespace
-    .getByName(SCANNER_OBJECT_NAME)
-    .fetch("https://scanner.internal/start", { method: "POST" });
-  if (!response.ok) {
-    throw new Error(`Scanner coordinator start failed (${response.status})`);
-  }
-}
-
-export class ScannerCoordinator implements DurableObject {
-  constructor(
-    private readonly state: DurableObjectState,
-    private readonly env: Env,
-  ) {}
-
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    if (request.method !== "POST" || url.pathname !== "/start") {
-      return new Response("Not found", { status: 404 });
-    }
-    const currentAlarm = await this.state.storage.getAlarm();
-    if (currentAlarm === null || currentAlarm < Date.now() - 30_000) {
-      await this.state.storage.setAlarm(nextScannerAlarm());
-    }
-    return Response.json({
-      running: true,
-      nextAlarm: (await this.state.storage.getAlarm()) ?? null,
-    });
-  }
-
-  async alarm(): Promise<void> {
-    try {
-      const result = await runScannerTick(this.env, Date.now());
-      await this.state.storage.put("lastRun", {
-        at: Date.now(),
-        result,
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message.slice(0, 500) : "Scanner alarm failed";
-      await this.state.storage.put("lastRun", {
-        at: Date.now(),
-        error: message,
-      });
-      console.error("Scanner alarm tick failed", error);
-    } finally {
-      await this.state.storage.setAlarm(nextScannerAlarm());
-    }
-  }
-}
-
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
 // To route SVGs through the optimizer (with security headers), set
@@ -95,13 +32,6 @@ export class ScannerCoordinator implements DurableObject {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/" || url.pathname === "/api/scanner") {
-      ctx.waitUntil(
-        startScannerCoordinator(env.SCANNER_COORDINATOR).catch((error) => {
-          console.error("Scanner coordinator bootstrap failed", error);
-        }),
-      );
-    }
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
