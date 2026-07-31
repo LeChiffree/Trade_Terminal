@@ -837,6 +837,81 @@ export async function runScheduledScannerMinute(
   }
 }
 
+export async function runScannerTick(
+  env: ScannerEnv,
+  tickTime = Date.now(),
+) {
+  const db = env.DB;
+  if (!db) return { skipped: true, reason: "database-not-configured" };
+  await ensureScannerSchema(db);
+  const now = Date.now();
+  if (!(await acquireLease(db, now))) {
+    return { skipped: true, reason: "lease-or-disabled" };
+  }
+
+  try {
+    const due = await loadDueIntervals(db, tickTime);
+    if (!due.length) {
+      return { skipped: true, reason: "no-interval-due" };
+    }
+
+    const [directory, context, config] = await Promise.all([
+      fetchTopBinanceSymbols(50),
+      fetchMarketContext(),
+      db
+        .prepare(
+          `SELECT enabled, threshold, minimum_confidence, rearm_score,
+                  cooldown_seconds, max_alerts_per_minute
+           FROM scanner_config
+           WHERE id = 1`,
+        )
+        .first<ScannerConfig>(),
+    ]);
+    if (!config?.enabled) {
+      return { skipped: true, reason: "disabled" };
+    }
+    if (directory.source !== "binance" || directory.symbols.length < 50) {
+      throw new Error("Canlı ilk 50 Binance coin listesi alınamadı.");
+    }
+
+    await scanDueIntervals(
+      db,
+      env,
+      directory.symbols,
+      context,
+      config,
+      due,
+      tickTime,
+    );
+    return {
+      skipped: false,
+      intervals: due.map((item) => item.interval),
+      scans: due.length * directory.symbols.length,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message.slice(0, 500) : "Tarama görevi başarısız.";
+    await db
+      .prepare(
+        `UPDATE scanner_config
+         SET last_error = ?, last_heartbeat = ?, updated_at = ?
+         WHERE id = 1`,
+      )
+      .bind(message, Date.now(), Date.now())
+      .run();
+    throw error;
+  } finally {
+    await db
+      .prepare(
+        `UPDATE scanner_config
+         SET lease_until = 0, updated_at = ?
+         WHERE id = 1`,
+      )
+      .bind(Date.now())
+      .run();
+  }
+}
+
 export async function getScannerStatus(db: D1Database) {
   await ensureScannerSchema(db);
   const [config, intervals, leaders, alerts] = await Promise.all([
