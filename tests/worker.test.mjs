@@ -85,10 +85,10 @@ test("rejects incomplete email requests before sending", async () => {
   assert.equal(typeof body.error, "string");
 });
 
-test("keeps the background scanner trigger private", async () => {
+test("keeps the background scanner sync private", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
-    new Request("http://localhost/api/scanner/run", { method: "POST" }),
+    new Request("http://localhost/api/scanner/sync", { method: "POST" }),
     env,
     ctx,
   );

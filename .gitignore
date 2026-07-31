@@ -31,6 +31,8 @@ yarn-error.log*
 .env*
 !.env.example
 .scanner-trigger.ps1
+.scanner-service.ps1
+.scanner-worker.jsonc
 
 # vercel
 .vercel
