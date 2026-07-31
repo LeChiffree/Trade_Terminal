@@ -470,14 +470,17 @@ export function makeDemoMarket(symbol = "BTCUSDT", interval = "15m"): MarketPayl
     ? Number(intervalMatch[1]) * intervalUnitMs[intervalMatch[2] as keyof typeof intervalUnitMs]
     : 900_000;
   const base = symbol.startsWith("BTC") ? 65842 : symbol.startsWith("ETH") ? 3420 : symbol.startsWith("SOL") ? 168 : 100;
-  let value = base * .91;
+  const seed = Array.from(`${symbol}:${interval}`).reduce((total, character) => ((total * 31) + character.charCodeAt(0)) >>> 0, 2166136261);
+  const phase = (seed % 997) / 71;
+  const bias = ((seed % 19) - 9) * .000035;
+  let value = base * (.88 + (seed % 13) * .005);
   const candles: Candle[] = Array.from({ length: 260 }, (_, index) => {
-    const drift = Math.sin(index / 9) * base * .0014 + base * .00036;
-    const noise = Math.sin(index * 1.73) * base * .0018;
+    const drift = Math.sin(index / 9 + phase) * base * .0014 + Math.cos(index / 23 + phase * .4) * base * .00055 + base * (.00028 + bias);
+    const noise = Math.sin(index * 1.73 + phase * 1.8) * base * .0018;
     const open = value;
     const close = Math.max(base * .55, open + drift + noise);
-    const high = Math.max(open, close) + Math.abs(Math.cos(index)) * base * .0018;
-    const low = Math.min(open, close) - Math.abs(Math.sin(index * .7)) * base * .0016;
+    const high = Math.max(open, close) + Math.abs(Math.cos(index + phase)) * base * .0018;
+    const low = Math.min(open, close) - Math.abs(Math.sin(index * .7 + phase)) * base * .0016;
     value = close;
     return {
       openTime: now - (260 - index) * intervalDuration,
@@ -486,10 +489,10 @@ export function makeDemoMarket(symbol = "BTCUSDT", interval = "15m"): MarketPayl
       high,
       low,
       close,
-      volume: 700 + Math.abs(Math.sin(index / 4)) * 900 + (index % 17 === 0 ? 1600 : 0),
+      volume: 700 + Math.abs(Math.sin(index / 4 + phase)) * 900 + ((index + seed) % 17 === 0 ? 1600 : 0),
       quoteVolume: 0,
       trades: 1000 + index * 2,
-      takerBuyVolume: (700 + Math.abs(Math.sin(index / 4)) * 900) * (.48 + Math.sin(index / 7) * .08),
+      takerBuyVolume: (700 + Math.abs(Math.sin(index / 4 + phase)) * 900) * (.48 + Math.sin(index / 7 + phase) * .08),
     };
   });
   const price = last(candles.map((candle) => candle.close));

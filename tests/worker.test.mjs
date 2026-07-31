@@ -67,3 +67,37 @@ test("rejects incomplete email requests before sending", async () => {
   const body = await response.json();
   assert.equal(typeof body.error, "string");
 });
+
+test("returns 50 non-stablecoin USDT markets", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/symbols"),
+    env,
+    ctx,
+  );
+  const body = await response.json();
+  const excluded = new Set(["USDT", "USDC", "FDUSD", "TUSD", "USDP", "DAI", "USDE", "PYUSD", "BUSD"]);
+
+  assert.equal(response.status, 200);
+  assert.equal(body.symbols.length, 50);
+  assert.ok(body.symbols.every((item) => item.quoteAsset === "USDT"));
+  assert.ok(body.symbols.every((item) => !excluded.has(item.baseAsset)));
+});
+
+test("market route changes both symbol and timeframe series", async () => {
+  const worker = await loadWorker();
+  const [firstResponse, secondResponse] = await Promise.all([
+    worker.fetch(new Request("http://localhost/api/market?symbol=BTCUSDT&interval=5m"), env, ctx),
+    worker.fetch(new Request("http://localhost/api/market?symbol=ETHUSDT&interval=1h"), env, ctx),
+  ]);
+  const [first, second] = await Promise.all([firstResponse.json(), secondResponse.json()]);
+
+  assert.equal(first.symbol, "BTCUSDT");
+  assert.equal(first.interval, "5m");
+  assert.equal(second.symbol, "ETHUSDT");
+  assert.equal(second.interval, "1h");
+  assert.notDeepEqual(
+    first.candles.slice(-10).map((item) => item.close),
+    second.candles.slice(-10).map((item) => item.close),
+  );
+});

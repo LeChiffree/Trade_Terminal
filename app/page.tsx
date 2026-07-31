@@ -50,6 +50,15 @@ type SignalLog = {
   approval: string;
 };
 
+type SymbolOption = {
+  symbol: string;
+  baseAsset: string;
+  quoteAsset: "USDT";
+  lastPrice: number;
+  priceChangePercent: number;
+  quoteVolume: number;
+};
+
 const NAV: { label: NavKey; glyph: string }[] = [
   { label: "Analiz", glyph: "⌁" },
   { label: "Tarayıcı", glyph: "⌕" },
@@ -59,13 +68,29 @@ const NAV: { label: NavKey; glyph: string }[] = [
 ];
 
 const TIMEFRAMES = ["5m", "15m", "1h", "4h", "1d", "1w"];
-const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"];
+const FALLBACK_BASE_ASSETS = [
+  "BTC", "ETH", "BNB", "SOL", "XRP", "DOGE", "ADA", "TRX", "AVAX", "SHIB",
+  "LINK", "DOT", "BCH", "NEAR", "LTC", "APT", "UNI", "ETC", "ICP", "FIL",
+  "HBAR", "ATOM", "ARB", "OP", "SUI", "INJ", "IMX", "AAVE", "MKR", "PEPE",
+  "WIF", "TAO", "FET", "RENDER", "SEI", "TIA", "ALGO", "VET", "GRT", "THETA",
+  "JASMY", "BONK", "FLOKI", "ENA", "PENDLE", "RUNE", "STX", "LDO", "CRV", "SAND",
+];
+const FALLBACK_SYMBOLS: SymbolOption[] = FALLBACK_BASE_ASSETS.map((baseAsset) => ({
+  symbol: `${baseAsset}USDT`,
+  baseAsset,
+  quoteAsset: "USDT",
+  lastPrice: 0,
+  priceChangePercent: 0,
+  quoteVolume: 0,
+}));
 
 const priceFormatter = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const compactFormatter = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
 
 function formatPrice(value: number) {
-  return Number.isFinite(value) ? `$${priceFormatter.format(value)}` : "—";
+  if (!Number.isFinite(value) || value <= 0) return "—";
+  const maximumFractionDigits = value < .01 ? 8 : value < 1 ? 5 : 2;
+  return `$${new Intl.NumberFormat("tr-TR", { maximumFractionDigits, minimumFractionDigits: value < 1 ? 2 : 2 }).format(value)}`;
 }
 
 function scoreLabel(score: number) {
@@ -133,7 +158,7 @@ function restoreLogs(value: string | null): SignalLog[] {
   });
 }
 
-function CandleChart({ candles, price }: { candles: Candle[]; price: number }) {
+function CandleChart({ candles, price, symbol, interval, loading }: { candles: Candle[]; price: number; symbol: string; interval: string; loading: boolean }) {
   const visible = candles.slice(-58);
   const width = 800;
   const height = 250;
@@ -150,8 +175,8 @@ function CandleChart({ candles, price }: { candles: Candle[]; price: number }) {
   const priceY = y(price);
 
   return (
-    <div className="chart-shell" aria-label="Canlı mum grafiği">
-      <div className="chart-watermark">LIVE MARKET</div>
+    <div className="chart-shell" aria-label={`${symbol} ${interval} canlı mum grafiği`} aria-busy={loading}>
+      <div className="chart-watermark">{symbol} · {interval}</div>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Seçili paritenin son mumları">
         <defs>
           <linearGradient id="priceArea" x1="0" x2="0" y1="0" y2="1">
@@ -177,8 +202,9 @@ function CandleChart({ candles, price }: { candles: Candle[]; price: number }) {
         <path d={path} className="ema-line" />
         <line x1="0" x2={width} y1={priceY} y2={priceY} className="price-line" />
       </svg>
-      <div className="price-tag" style={{ top: `${Math.max(8, Math.min(228, priceY))}px` }}>{priceFormatter.format(price)}</div>
+      <div className="price-tag" style={{ top: `${Math.max(8, Math.min(228, priceY))}px` }}>{formatPrice(price)}</div>
       <div className="chart-axis"><span>−58 mum</span><span>−40</span><span>−20</span><span>Son mum</span></div>
+      {loading && <div className="chart-loading"><span /><b>{symbol} · {interval} yükleniyor</b></div>}
     </div>
   );
 }
@@ -248,6 +274,7 @@ function AnalysisView({
   multi,
   llm,
   llmLoading,
+  loading,
   runLlmReview,
 }: {
   market: MarketPayload;
@@ -255,6 +282,7 @@ function AnalysisView({
   multi: Record<string, AnalysisResult>;
   llm: LlmReview | null;
   llmLoading: boolean;
+  loading: boolean;
   runLlmReview: () => void;
 }) {
   const llmScore = llm?.direction_score ?? 0;
@@ -269,8 +297,8 @@ function AnalysisView({
       {market.source === "demo" && <div className="source-banner"><span>DEMO VERİ</span> Binance erişimi bu istekte alınamadı; arayüz kesintisiz test edilebilsin diye sentetik seri gösteriliyor.</div>}
       <div className="analysis-grid">
         <section className="panel chart-panel">
-          <div className="panel-head"><div><span className="eyebrow">FİYAT AKIŞI</span><h2>{analysis.regime}</h2></div><div className="legend"><span className="mint-dot" /> EMA20 <span className="amber-dot" /> Son fiyat</div></div>
-          <CandleChart candles={market.candles} price={analysis.price} />
+          <div className="panel-head"><div><span className="eyebrow">FİYAT AKIŞI · {market.symbol} · {market.interval}</span><h2>{analysis.regime}</h2></div><div className="legend"><span className="mint-dot" /> EMA20 <span className="amber-dot" /> Son fiyat</div></div>
+          <CandleChart key={`${market.symbol}-${market.interval}-${market.candles.at(-1)?.openTime}`} candles={market.candles} price={analysis.price} symbol={market.symbol} interval={market.interval} loading={loading} />
           <div className="level-strip">
             <div><small>Destek 1</small><b>{formatPrice(analysis.supports[0])}</b></div>
             <div><small>Destek 2</small><b>{formatPrice(analysis.supports[1])}</b></div>
@@ -285,7 +313,7 @@ function AnalysisView({
             <ScoreRing score={analysis.quantScore} label="Quant engine" tone="mint" />
             <ScoreRing score={llmScore} label={llm?.configured ? `LLM · ${llm.provider}` : "Demo approver"} tone="violet" muted={!llm} />
           </div>
-          <button className="llm-run" disabled={llmLoading} onClick={runLlmReview}>{llmLoading ? "Second approver çalışıyor…" : llm?.configured ? "LLM yorumunu yenile" : "Second approver'ı dene"}</button>
+          <button className="llm-run" disabled={llmLoading || loading} onClick={runLlmReview}>{loading ? "Piyasa verisi bekleniyor…" : llmLoading ? "Gemini değerlendiriyor…" : llm?.configured ? "Gemini yorumunu yenile" : "Gemini değerlendirmesi iste"}</button>
           <div className={`consensus ${conflict ? "conflict" : ""}`}><div><small>FINAL CONSENSUS</small><strong>{finalScore > 0 ? "+" : ""}{finalScore}</strong></div><span>{finalLabel}</span></div>
           <div className="confidence"><div><span>Güven</span><b>%{llm?.configured ? Math.round(analysis.confidence * .75 + llm.confidence * .25) : analysis.confidence}</b></div><div className="meter"><i style={{ width: `${analysis.confidence}%` }} /></div></div>
           <div className="reason-list">
@@ -301,13 +329,13 @@ function AnalysisView({
   );
 }
 
-function ScannerView({ rows, onSelect, loading }: { rows: AnalysisResult[]; onSelect: (symbol: string) => void; loading: boolean }) {
+function ScannerView({ rows, onSelect, loading }: { rows: SymbolOption[]; onSelect: (symbol: string) => void; loading: boolean }) {
   return (
     <section className="panel module-panel">
-      <div className="panel-head"><div><span className="eyebrow">PİYASA TARAYICI</span><h2>Likiditesi yüksek pariteler</h2></div><span className="data-note">{loading ? "Güncelleniyor…" : "Quant skoruna göre"}</span></div>
+      <div className="panel-head"><div><span className="eyebrow">PİYASA TARAYICI · STABLECOIN HARİÇ</span><h2>USDT hacmine göre ilk 50 coin</h2></div><span className="data-note">{loading ? "Binance listesi güncelleniyor…" : "24 saatlik hacim sırası"}</span></div>
       <div className="scanner-table">
-        <div className="scanner-row scanner-head"><span>Parite</span><span>Rejim</span><span>Trend</span><span>Momentum</span><span>Hacim</span><span>Quant</span><span>Güven</span><span /></div>
-        {rows.map((row) => <div className="scanner-row" key={row.symbol}><span><b>{row.symbol}</b><small>{formatPrice(row.price)}</small></span><span>{row.regime}</span><span className={scoreTone(row.familyScores.Trend)}>{row.familyScores.Trend > 0 ? "+" : ""}{row.familyScores.Trend}</span><span className={scoreTone(row.familyScores.Momentum)}>{row.familyScores.Momentum > 0 ? "+" : ""}{row.familyScores.Momentum}</span><span className={scoreTone(row.familyScores.Hacim)}>{row.familyScores.Hacim > 0 ? "+" : ""}{row.familyScores.Hacim}</span><span><strong className={scoreTone(row.quantScore)}>{row.quantScore > 0 ? "+" : ""}{row.quantScore}</strong><small>{row.direction}</small></span><span>%{row.confidence}</span><span><button onClick={() => onSelect(row.symbol)}>Analiz et →</button></span></div>)}
+        <div className="scanner-row scanner-head"><span>#</span><span>Parite</span><span>Son fiyat</span><span>24s değişim</span><span>24s hacim</span><span /></div>
+        {rows.slice(0, 50).map((row, index) => <div className="scanner-row" key={row.symbol}><span>{index + 1}</span><span><b>{row.baseAsset}/USDT</b><small>Binance Spot</small></span><span>{formatPrice(row.lastPrice)}</span><span className={row.priceChangePercent > 0 ? "positive" : row.priceChangePercent < 0 ? "negative" : "neutral"}>{row.lastPrice ? `${row.priceChangePercent > 0 ? "+" : ""}${priceFormatter.format(row.priceChangePercent)}%` : "—"}</span><span>{row.quoteVolume ? `$${compactFormatter.format(row.quoteVolume)}` : "—"}</span><span><button onClick={() => onSelect(row.symbol)}>Analiz et →</button></span></div>)}
       </div>
     </section>
   );
@@ -375,7 +403,7 @@ function SettingsView({ llmStatus, gmailStatus, onTestGmail, gmailMessage }: { l
       <section className="panel integration-card"><div className="integration-logo violet">AI</div><div><span className="eyebrow">SECOND APPROVER</span><h2>Gemini API</h2><p>Yapılandırılmış indikatör yorumlarını bağımsız modele gönderir; yön, güven, tradeability ve risk skoru alır.</p></div><div className="integration-status"><span className={llmStatus.configured ? "integration-ok" : "integration-warn"}>{llmStatus.configured ? "Bağlı" : "Demo modu"}</span><small>{llmStatus.configured ? `${llmStatus.provider} · ${llmStatus.model}` : "Sunucu secret ayarları bekleniyor"}</small></div></section>
       <section className="panel integration-card"><div className="integration-logo mint">M</div><div><span className="eyebrow">ALARM TESLİMATI</span><h2>Gmail SMTP</h2><p>Alarm koşulu gerçekleştiğinde teknik özet, puanlar ve güven bilgisiyle e-posta gönderir.</p></div><div className="integration-status"><span className={gmailStatus.configured ? "integration-ok" : "integration-warn"}>{gmailStatus.configured ? "Bağlı" : "Bağlantı bekliyor"}</span><button className="ghost-button" disabled={!gmailStatus.configured || gmailMessage === "Gönderiliyor…"} onClick={onTestGmail}>Test e-postası</button>{gmailMessage && <small>{gmailMessage}</small>}</div></section>
       <section className="panel settings-note"><span>GÜVENLİK</span><h3>Kimlik bilgileri tarayıcıya gönderilmez</h3><p>Gemini anahtarı ve Gmail uygulama şifresi yalnızca sunucu ortamında tutulur; tarayıcı depolamasında veya URL’de yer almaz.</p></section>
-      <section className="panel settings-note"><span>AKTİF MOD</span><h3>Kapanmış mum + düşük maliyet</h3><p>LLM yalnızca yeni kapanmış mumda veya manuel istekte çağrılır. Aynı mum için tekrar çağrı cache ile engellenir.</p></section>
+      <section className="panel settings-note"><span>AKTİF MOD</span><h3>Tamamen manuel · sıfır gereksiz token</h3><p>Gemini yalnızca analiz ekranındaki düğmeye tıkladığında çağrılır. Parite, zaman dilimi ve mum güncellemeleri otomatik LLM isteği oluşturmaz.</p></section>
     </div>
   );
 }
@@ -389,18 +417,21 @@ export default function Home() {
   const [multi, setMulti] = useState<Record<string, AnalysisResult>>({});
   const [loading, setLoading] = useState(true);
   const [llm, setLlm] = useState<LlmReview | null>(null);
+  const [llmContextKey, setLlmContextKey] = useState("");
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmStatus, setLlmStatus] = useState<{ configured: boolean; provider?: string; model?: string | null }>({ configured: false });
   const [gmailStatus, setGmailStatus] = useState<{ configured: boolean }>({ configured: false });
   const [gmailMessage, setGmailMessage] = useState("");
   const [alerts, setAlertsState] = useState<AlertRule[]>([]);
   const [logs, setLogsState] = useState<SignalLog[]>([]);
-  const [scannerRows, setScannerRows] = useState<AnalysisResult[]>([]);
-  const [scannerLoading, setScannerLoading] = useState(false);
+  const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>(FALLBACK_SYMBOLS);
+  const [symbolsLoading, setSymbolsLoading] = useState(true);
   const [freshnessNow, setFreshnessNow] = useState(0);
-  const reviewKey = useRef("");
   const latestMarketRef = useRef(market);
   const analysis = useMemo(() => analyzeMarket(market), [market]);
+  const lastCandleOpenTime = market.candles.at(-1)?.openTime;
+  const currentContextKey = `${market.symbol}-${market.interval}-${lastCandleOpenTime ?? 0}`;
+  const displayedLlm = llmContextKey === currentContextKey ? llm : null;
 
   const persistAlerts = useCallback((next: AlertRule[]) => {
     setAlertsState(next);
@@ -419,6 +450,7 @@ export default function Home() {
   }, [market]);
 
   useEffect(() => {
+    let disposed = false;
     const restoreTimer = window.setTimeout(() => {
       try {
         setAlertsState(restoreAlerts(localStorage.getItem("quantscope-alerts")));
@@ -433,10 +465,24 @@ export default function Home() {
         await response.json() as { configured: boolean }
       ),
     ]).then(([llmHealth, gmailHealth]) => {
+      if (disposed) return;
       setLlmStatus(llmHealth);
       setGmailStatus(gmailHealth);
     }).catch(() => undefined);
-    return () => window.clearTimeout(restoreTimer);
+    fetch("/api/symbols").then(async (response) => {
+      if (!response.ok) throw new Error("Symbol directory failed");
+      return await response.json() as { symbols?: SymbolOption[] };
+    }).then((directory) => {
+      if (!disposed && Array.isArray(directory.symbols) && directory.symbols.length === 50) {
+        setSymbolOptions(directory.symbols);
+      }
+    }).catch(() => undefined).finally(() => {
+      if (!disposed) setSymbolsLoading(false);
+    });
+    return () => {
+      disposed = true;
+      window.clearTimeout(restoreTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -449,7 +495,7 @@ export default function Home() {
     const load = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/market?symbol=${symbol}&interval=${timeframe}`, { cache: "no-store" });
+        const response = await fetch(`/api/market?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(timeframe)}`, { cache: "no-store" });
         if (!response.ok) throw new Error("Market data failed");
         const data = await response.json() as MarketPayload;
         if (!cancelled) setMarket(data);
@@ -500,46 +546,17 @@ export default function Home() {
       if (!response.ok) throw new Error("LLM review failed");
       const review = await response.json() as LlmReview;
       setLlm(review);
+      setLlmContextKey(currentContextKey);
       const finalScore = review.configured ? Math.round(analysis.quantScore * .8 + review.direction_score * .2) : analysis.quantScore;
       const entry: SignalLog = { id: makeId(), timestamp: Date.now(), symbol: analysis.symbol, interval: analysis.interval, quantScore: analysis.quantScore, llmScore: review.configured ? review.direction_score : null, finalScore, direction: scoreLabel(finalScore), approval: review.approval };
       persistLog(entry);
     } catch {
       setLlm(null);
+      setLlmContextKey("");
     } finally {
       setLlmLoading(false);
     }
-  }, [analysis, persistLog]);
-
-  useEffect(() => {
-    const key = `${market.symbol}-${market.interval}-${market.candles.at(-1)?.openTime}`;
-    if (key === reviewKey.current) return;
-    reviewKey.current = key;
-    setLlm(null);
-    const timer = window.setTimeout(() => {
-      if (Math.abs(analysis.quantScore) >= 15) void runLlmReview();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [analysis.quantScore, market.symbol, market.interval, market.candles, runLlmReview]);
-
-  useEffect(() => {
-    if (activeNav !== "Tarayıcı" || scannerRows.length) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      setScannerLoading(true);
-      Promise.all(SYMBOLS.map(async (item) => {
-        try {
-          const response = await fetch(`/api/market?symbol=${item}&interval=15m`, { cache: "no-store" });
-          if (!response.ok) throw new Error("Scanner market data failed");
-          return analyzeMarket(await response.json() as MarketPayload);
-        } catch { return analyzeMarket(makeDemoMarket(item, "15m")); }
-      })).then((rows) => {
-        if (!cancelled) setScannerRows(rows.sort((a, b) => b.quantScore - a.quantScore));
-      }).finally(() => {
-        if (!cancelled) setScannerLoading(false);
-      });
-    }, 0);
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [activeNav, scannerRows.length]);
+  }, [analysis, currentContextKey, persistLog]);
 
   useEffect(() => {
     const now = Date.now();
@@ -578,7 +595,26 @@ export default function Home() {
     } catch { setGmailMessage("Gönderim başarısız."); }
   };
 
-  const selectScannerSymbol = (nextSymbol: string) => { setSymbol(nextSymbol); setActiveNav("Analiz"); setLlm(null); };
+  const changeSymbol = (nextSymbol: string) => {
+    if (nextSymbol === symbol) return;
+    setLoading(true);
+    setSymbol(nextSymbol);
+    setMarket(makeDemoMarket(nextSymbol, timeframe));
+    setLlm(null);
+    setLlmContextKey("");
+  };
+  const changeTimeframe = (nextTimeframe: string) => {
+    if (nextTimeframe === timeframe) return;
+    setLoading(true);
+    setTimeframe(nextTimeframe);
+    setMarket(makeDemoMarket(symbol, nextTimeframe));
+    setLlm(null);
+    setLlmContextKey("");
+  };
+  const selectScannerSymbol = (nextSymbol: string) => {
+    changeSymbol(nextSymbol);
+    setActiveNav("Analiz");
+  };
   const freshness = Math.max(0, Math.round((freshnessNow - market.fetchedAt) / 1000));
 
   return (
@@ -596,17 +632,17 @@ export default function Home() {
         </header>
 
         <div className="symbol-row">
-          <div className="symbol-picker"><span className="coin-icon">{symbol.startsWith("BTC") ? "₿" : symbol.slice(0, 1)}</span><div><select value={symbol} onChange={(event) => { setSymbol(event.target.value); setLlm(null); }}>{SYMBOLS.map((item) => <option key={item}>{item}</option>)}</select><small>Binance · Spot market data</small></div></div>
+          <div className="symbol-picker"><span className="coin-icon">{symbol.startsWith("BTC") ? "₿" : symbol.slice(0, 1)}</span><div><select value={symbol} onChange={(event) => changeSymbol(event.target.value)}>{symbolOptions.map((item) => <option key={item.symbol} value={item.symbol}>{item.baseAsset}/USDT</option>)}</select><small>{symbolsLoading ? "İlk 50 coin yükleniyor…" : "Binance · Hacme göre ilk 50"}</small></div></div>
           <div className="quote"><strong>{formatPrice(market.ticker.lastPrice)}</strong><span className={market.ticker.priceChangePercent >= 0 ? "" : "negative"}>{market.ticker.priceChangePercent >= 0 ? "+" : ""}{priceFormatter.format(market.ticker.priceChange)} · {market.ticker.priceChangePercent >= 0 ? "+" : ""}{priceFormatter.format(market.ticker.priceChangePercent)}%</span></div>
           <div className="quote-stat"><small>24s Hacim</small><b>${compactFormatter.format(market.ticker.quoteVolume)}</b></div>
           <div className="quote-stat"><small>24s Aralık</small><b>{formatPrice(market.ticker.lowPrice)} — {formatPrice(market.ticker.highPrice)}</b></div>
           <button className={`star ${starred ? "on" : ""}`} onClick={() => setStarred(!starred)} aria-label="Favoriye ekle">★</button>
         </div>
 
-        <div className="timeframe-row"><div className="segmented" aria-label="Zaman dilimi">{TIMEFRAMES.map((item) => <button key={item} className={timeframe === item ? "active" : ""} onClick={() => { setTimeframe(item); setLlm(null); }}>{item}</button>)}</div><div className="candle-state"><span /> Kapanmış mum analizi <b>{timeframe}</b> · Kalite %{analysis.dataQuality}</div></div>
+        <div className="timeframe-row"><div className="segmented" aria-label="Zaman dilimi">{TIMEFRAMES.map((item) => <button key={item} className={timeframe === item ? "active" : ""} onClick={() => changeTimeframe(item)}>{item}</button>)}</div><div className="candle-state"><span /> Kapanmış mum analizi <b>{timeframe}</b> · Kalite %{analysis.dataQuality}</div></div>
 
-        {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={llm} llmLoading={llmLoading} runLlmReview={runLlmReview} />}
-        {activeNav === "Tarayıcı" && <ScannerView rows={scannerRows} loading={scannerLoading} onSelect={selectScannerSymbol} />}
+        {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={displayedLlm} llmLoading={llmLoading} loading={loading} runLlmReview={runLlmReview} />}
+        {activeNav === "Tarayıcı" && <ScannerView rows={symbolOptions} loading={symbolsLoading} onSelect={selectScannerSymbol} />}
         {activeNav === "Alarmlar" && <AlertsView key={`${market.symbol}-${market.interval}`} alerts={alerts} setAlerts={persistAlerts} market={market} gmailConfigured={gmailStatus.configured} />}
         {activeNav === "Geçmiş" && <HistoryView logs={logs} />}
         {activeNav === "Ayarlar" && <SettingsView llmStatus={llmStatus} gmailStatus={gmailStatus} onTestGmail={testGmail} gmailMessage={gmailMessage} />}

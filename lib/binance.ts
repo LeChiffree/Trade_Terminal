@@ -2,6 +2,36 @@ import { makeDemoMarket, type Candle, type MarketPayload } from "./analysis";
 
 const BASE_URLS = ["https://data-api.binance.vision", "https://api.binance.com"];
 const INTERVALS = new Set(["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w"]);
+const STABLE_ASSETS = new Set([
+  "USDT", "USDC", "FDUSD", "TUSD", "USDP", "DAI", "USDE", "USD1", "PYUSD",
+  "EURC", "AEUR", "EURI", "RLUSD", "BUSD", "USTC", "USDJ", "XUSD", "GUSD",
+  "LUSD", "FRAX", "EURT",
+]);
+
+const FALLBACK_BASE_ASSETS = [
+  "BTC", "ETH", "BNB", "SOL", "XRP", "DOGE", "ADA", "TRX", "AVAX", "SHIB",
+  "LINK", "DOT", "BCH", "NEAR", "LTC", "APT", "UNI", "ETC", "ICP", "FIL",
+  "HBAR", "ATOM", "ARB", "OP", "SUI", "INJ", "IMX", "AAVE", "MKR", "PEPE",
+  "WIF", "TAO", "FET", "RENDER", "SEI", "TIA", "ALGO", "VET", "GRT", "THETA",
+  "JASMY", "BONK", "FLOKI", "ENA", "PENDLE", "RUNE", "STX", "LDO", "CRV", "SAND",
+];
+
+export type MarketSymbol = {
+  symbol: string;
+  baseAsset: string;
+  quoteAsset: "USDT";
+  lastPrice: number;
+  priceChangePercent: number;
+  quoteVolume: number;
+};
+
+export type MarketSymbolDirectory = {
+  symbols: MarketSymbol[];
+  source: "binance" | "fallback";
+  fetchedAt: number;
+};
+
+let symbolDirectoryCache: { expiresAt: number; value: MarketSymbolDirectory } | null = null;
 
 export function normalizeMarketQuery(symbolValue: string | null, intervalValue: string | null) {
   const symbol = (symbolValue ?? "BTCUSDT").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -60,6 +90,100 @@ function parseCandles(rows: unknown, now = Date.now()): Candle[] {
 function finiteOr(value: unknown, fallback: number) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function fallbackSymbolDirectory(): MarketSymbolDirectory {
+  return {
+    symbols: FALLBACK_BASE_ASSETS.map((baseAsset) => ({
+      symbol: `${baseAsset}USDT`,
+      baseAsset,
+      quoteAsset: "USDT",
+      lastPrice: 0,
+      priceChangePercent: 0,
+      quoteVolume: 0,
+    })),
+    source: "fallback",
+    fetchedAt: Date.now(),
+  };
+}
+
+function isLeveragedToken(baseAsset: string) {
+  return ["UP", "DOWN", "BULL", "BEAR"].some((suffix) =>
+    baseAsset.endsWith(suffix) && baseAsset.length - suffix.length >= 3
+  );
+}
+
+export async function fetchTopBinanceSymbols(limit = 50): Promise<MarketSymbolDirectory> {
+  const requestedLimit = Math.min(50, Math.max(1, Math.trunc(limit)));
+  if (symbolDirectoryCache && symbolDirectoryCache.expiresAt > Date.now()) {
+    return {
+      ...symbolDirectoryCache.value,
+      symbols: symbolDirectoryCache.value.symbols.slice(0, requestedLimit),
+    };
+  }
+
+  try {
+    const [exchangeRaw, tickersRaw] = await Promise.all([
+      fetchJson("/api/v3/exchangeInfo"),
+      fetchJson("/api/v3/ticker/24hr"),
+    ]);
+    const exchange = exchangeRaw as {
+      symbols?: Array<{
+        symbol?: unknown;
+        status?: unknown;
+        baseAsset?: unknown;
+        quoteAsset?: unknown;
+        isSpotTradingAllowed?: unknown;
+      }>;
+    };
+    const tickerBySymbol = new Map<string, Record<string, unknown>>();
+    if (Array.isArray(tickersRaw)) {
+      for (const item of tickersRaw) {
+        if (!item || typeof item !== "object") continue;
+        const ticker = item as Record<string, unknown>;
+        const tickerSymbol = String(ticker.symbol ?? "");
+        if (tickerSymbol) tickerBySymbol.set(tickerSymbol, ticker);
+      }
+    }
+
+    const symbols = (exchange.symbols ?? []).flatMap((item): MarketSymbol[] => {
+      const symbol = String(item.symbol ?? "");
+      const baseAsset = String(item.baseAsset ?? "");
+      const quoteAsset = String(item.quoteAsset ?? "");
+      const ticker = tickerBySymbol.get(symbol);
+      if (
+        item.status !== "TRADING" ||
+        item.isSpotTradingAllowed === false ||
+        quoteAsset !== "USDT" ||
+        !ticker ||
+        STABLE_ASSETS.has(baseAsset) ||
+        isLeveragedToken(baseAsset)
+      ) return [];
+      const quoteVolume = finiteOr(ticker.quoteVolume, 0);
+      if (quoteVolume <= 0) return [];
+      return [{
+        symbol,
+        baseAsset,
+        quoteAsset: "USDT",
+        lastPrice: finiteOr(ticker.lastPrice, 0),
+        priceChangePercent: finiteOr(ticker.priceChangePercent, 0),
+        quoteVolume,
+      }];
+    }).sort((left, right) => right.quoteVolume - left.quoteVolume).slice(0, 50);
+
+    if (symbols.length < requestedLimit) throw new Error("Insufficient symbol directory");
+    const value: MarketSymbolDirectory = {
+      symbols,
+      source: "binance",
+      fetchedAt: Date.now(),
+    };
+    symbolDirectoryCache = { expiresAt: Date.now() + 5 * 60_000, value };
+    return { ...value, symbols: symbols.slice(0, requestedLimit) };
+  } catch {
+    const value = fallbackSymbolDirectory();
+    symbolDirectoryCache = { expiresAt: Date.now() + 60_000, value };
+    return { ...value, symbols: value.symbols.slice(0, requestedLimit) };
+  }
 }
 
 function parseBookSide(value: unknown) {
