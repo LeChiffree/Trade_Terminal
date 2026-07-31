@@ -85,6 +85,54 @@ function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function restoreAlerts(value: string | null): AlertRule[] {
+  const parsed: unknown = JSON.parse(value ?? "[]");
+  if (!Array.isArray(parsed)) return [];
+  return parsed.slice(0, 100).flatMap((item): AlertRule[] => {
+    if (!isRecord(item)) return [];
+    const direction = item.direction === "above" || item.direction === "below" ? item.direction : null;
+    const threshold = Number(item.threshold);
+    if (!direction || !Number.isFinite(threshold) || threshold <= 0) return [];
+    return [{
+      id: String(item.id || makeId()).slice(0, 100),
+      symbol: String(item.symbol || "BTCUSDT").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20),
+      interval: TIMEFRAMES.includes(String(item.interval)) ? String(item.interval) : "15m",
+      direction,
+      threshold,
+      active: Boolean(item.active),
+      createdAt: Number.isFinite(Number(item.createdAt)) ? Number(item.createdAt) : Date.now(),
+      lastTriggered: Number.isFinite(Number(item.lastTriggered)) ? Number(item.lastTriggered) : undefined,
+    }];
+  });
+}
+
+function restoreLogs(value: string | null): SignalLog[] {
+  const parsed: unknown = JSON.parse(value ?? "[]");
+  if (!Array.isArray(parsed)) return [];
+  return parsed.slice(0, 100).flatMap((item): SignalLog[] => {
+    if (!isRecord(item)) return [];
+    const quantScore = Number(item.quantScore);
+    const finalScore = Number(item.finalScore);
+    if (!Number.isFinite(quantScore) || !Number.isFinite(finalScore)) return [];
+    const llmScore = item.llmScore === null ? null : Number(item.llmScore);
+    return [{
+      id: String(item.id || makeId()).slice(0, 100),
+      timestamp: Number.isFinite(Number(item.timestamp)) ? Number(item.timestamp) : Date.now(),
+      symbol: String(item.symbol || "BTCUSDT").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20),
+      interval: TIMEFRAMES.includes(String(item.interval)) ? String(item.interval) : "15m",
+      quantScore,
+      llmScore: llmScore === null || !Number.isFinite(llmScore) ? null : llmScore,
+      finalScore,
+      direction: String(item.direction || scoreLabel(finalScore)).slice(0, 40),
+      approval: String(item.approval || "uncertain").slice(0, 40),
+    }];
+  });
+}
+
 function CandleChart({ candles, price }: { candles: Candle[]; price: number }) {
   const visible = candles.slice(-58);
   const width = 800;
@@ -274,7 +322,11 @@ function AlertsView({ alerts, setAlerts, market, gmailConfigured }: { alerts: Al
     setAlerts([{ id: makeId(), symbol: market.symbol, interval: market.interval, direction, threshold: value, active: true, createdAt: Date.now() }, ...alerts]);
   };
   const remove = (id: string) => setAlerts(alerts.filter((alert) => alert.id !== id));
-  const toggle = (id: string) => setAlerts(alerts.map((alert) => alert.id === id ? { ...alert, active: !alert.active } : alert));
+  const toggle = (id: string) => setAlerts(alerts.map((alert) =>
+    alert.id === id
+      ? { ...alert, active: !alert.active, lastTriggered: alert.active ? alert.lastTriggered : undefined }
+      : alert
+  ));
   return (
     <div className="module-grid">
       <section className="panel module-panel alert-builder">
@@ -320,9 +372,9 @@ function HistoryView({ logs }: { logs: SignalLog[] }) {
 function SettingsView({ llmStatus, gmailStatus, onTestGmail, gmailMessage }: { llmStatus: { configured: boolean; provider?: string; model?: string | null }; gmailStatus: { configured: boolean }; onTestGmail: () => void; gmailMessage: string }) {
   return (
     <div className="settings-grid">
-      <section className="panel integration-card"><div className="integration-logo violet">AI</div><div><span className="eyebrow">SECOND APPROVER</span><h2>LLM API</h2><p>Yapılandırılmış indikatör yorumlarını bağımsız modele gönderir; yön, güven, tradeability ve risk skoru alır.</p></div><div className="integration-status"><span className={llmStatus.configured ? "integration-ok" : "integration-warn"}>{llmStatus.configured ? "Bağlı" : "Demo modu"}</span><small>{llmStatus.configured ? `${llmStatus.provider} · ${llmStatus.model}` : "Sunucu secret ayarları bekleniyor"}</small></div></section>
-      <section className="panel integration-card"><div className="integration-logo mint">M</div><div><span className="eyebrow">ALARM TESLİMATI</span><h2>Gmail API</h2><p>Alarm koşulu gerçekleştiğinde teknik özet, puanlar, seviyeler ve risk bayraklarıyla HTML e-posta gönderir.</p></div><div className="integration-status"><span className={gmailStatus.configured ? "integration-ok" : "integration-warn"}>{gmailStatus.configured ? "Bağlı" : "Bağlantı bekliyor"}</span><button className="ghost-button" disabled={!gmailStatus.configured} onClick={onTestGmail}>Test e-postası</button>{gmailMessage && <small>{gmailMessage}</small>}</div></section>
-      <section className="panel settings-note"><span>GÜVENLİK</span><h3>API anahtarları tarayıcıda tutulmaz</h3><p>LLM anahtarı ve Gmail OAuth refresh token yalnızca şifreli çalışma ortamı değişkenlerinde saklanacak. Kaynak kodda, tarayıcı depolamasında veya URL’de yer almayacak.</p></section>
+      <section className="panel integration-card"><div className="integration-logo violet">AI</div><div><span className="eyebrow">SECOND APPROVER</span><h2>Gemini API</h2><p>Yapılandırılmış indikatör yorumlarını bağımsız modele gönderir; yön, güven, tradeability ve risk skoru alır.</p></div><div className="integration-status"><span className={llmStatus.configured ? "integration-ok" : "integration-warn"}>{llmStatus.configured ? "Bağlı" : "Demo modu"}</span><small>{llmStatus.configured ? `${llmStatus.provider} · ${llmStatus.model}` : "Sunucu secret ayarları bekleniyor"}</small></div></section>
+      <section className="panel integration-card"><div className="integration-logo mint">M</div><div><span className="eyebrow">ALARM TESLİMATI</span><h2>Gmail SMTP</h2><p>Alarm koşulu gerçekleştiğinde teknik özet, puanlar ve güven bilgisiyle e-posta gönderir.</p></div><div className="integration-status"><span className={gmailStatus.configured ? "integration-ok" : "integration-warn"}>{gmailStatus.configured ? "Bağlı" : "Bağlantı bekliyor"}</span><button className="ghost-button" disabled={!gmailStatus.configured || gmailMessage === "Gönderiliyor…"} onClick={onTestGmail}>Test e-postası</button>{gmailMessage && <small>{gmailMessage}</small>}</div></section>
+      <section className="panel settings-note"><span>GÜVENLİK</span><h3>Kimlik bilgileri tarayıcıya gönderilmez</h3><p>Gemini anahtarı ve Gmail uygulama şifresi yalnızca sunucu ortamında tutulur; tarayıcı depolamasında veya URL’de yer almaz.</p></section>
       <section className="panel settings-note"><span>AKTİF MOD</span><h3>Kapanmış mum + düşük maliyet</h3><p>LLM yalnızca yeni kapanmış mumda veya manuel istekte çağrılır. Aynı mum için tekrar çağrı cache ile engellenir.</p></section>
     </div>
   );
@@ -347,28 +399,39 @@ export default function Home() {
   const [scannerLoading, setScannerLoading] = useState(false);
   const [freshnessNow, setFreshnessNow] = useState(0);
   const reviewKey = useRef("");
+  const latestMarketRef = useRef(market);
   const analysis = useMemo(() => analyzeMarket(market), [market]);
 
   const persistAlerts = useCallback((next: AlertRule[]) => {
     setAlertsState(next);
     localStorage.setItem("quantscope-alerts", JSON.stringify(next));
   }, []);
-  const persistLogs = useCallback((next: SignalLog[]) => {
-    const trimmed = next.slice(0, 100);
-    setLogsState(trimmed);
-    localStorage.setItem("quantscope-signals", JSON.stringify(trimmed));
+  const persistLog = useCallback((entry: SignalLog) => {
+    setLogsState((current) => {
+      const next = [entry, ...current].slice(0, 100);
+      localStorage.setItem("quantscope-signals", JSON.stringify(next));
+      return next;
+    });
   }, []);
+
+  useEffect(() => {
+    latestMarketRef.current = market;
+  }, [market]);
 
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
       try {
-        setAlertsState(JSON.parse(localStorage.getItem("quantscope-alerts") ?? "[]"));
-        setLogsState(JSON.parse(localStorage.getItem("quantscope-signals") ?? "[]"));
+        setAlertsState(restoreAlerts(localStorage.getItem("quantscope-alerts")));
+        setLogsState(restoreLogs(localStorage.getItem("quantscope-signals")));
       } catch { /* device-local state can safely reset */ }
     }, 0);
     Promise.all([
-      fetch("/api/llm-review").then((response) => response.json()),
-      fetch("/api/gmail").then((response) => response.json()),
+      fetch("/api/llm-review").then(async (response) =>
+        await response.json() as { configured: boolean; provider?: string; model?: string | null }
+      ),
+      fetch("/api/email").then(async (response) =>
+        await response.json() as { configured: boolean }
+      ),
     ]).then(([llmHealth, gmailHealth]) => {
       setLlmStatus(llmHealth);
       setGmailStatus(gmailHealth);
@@ -402,18 +465,23 @@ export default function Home() {
   }, [symbol, timeframe]);
 
   useEffect(() => {
+    const baseMarket = latestMarketRef.current;
+    if (baseMarket.symbol !== symbol) return;
     let cancelled = false;
-    fetch(`/api/multi?symbol=${symbol}`, { cache: "no-store" }).then((response) => response.json()).then((data: { intervals: Record<string, { candles: Candle[]; source: "binance" | "demo" }> }) => {
+    fetch(`/api/multi?symbol=${symbol}`, { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error("Multi-timeframe data failed");
+      return await response.json() as { intervals: Record<string, { candles: Candle[]; source: "binance" | "demo" }> };
+    }).then((data: { intervals: Record<string, { candles: Candle[]; source: "binance" | "demo" }> }) => {
       if (cancelled) return;
       const results: Record<string, AnalysisResult> = {};
       for (const interval of TIMEFRAMES) {
         const result = data.intervals[interval];
-        if (result?.candles) results[interval] = analyzeMarket({ ...market, symbol, interval, candles: result.candles, source: result.source });
+        if (result?.candles) results[interval] = analyzeMarket({ ...baseMarket, symbol, interval, candles: result.candles, source: result.source });
       }
       setMulti(results);
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [symbol, market]);
+  }, [symbol, market.symbol]);
 
   const runLlmReview = useCallback(async () => {
     setLlmLoading(true);
@@ -426,20 +494,21 @@ export default function Home() {
           interval: analysis.interval,
           regime: analysis.regime,
           levels: { supports: analysis.supports, resistances: analysis.resistances, atr: analysis.atr },
-          facts: analysis.indicators.map((item) => ({ name: item.name, family: item.family, value: item.value, state: item.state, interpretation: item.interpretation, score: item.score })),
+          facts: analysis.indicators.map((item) => ({ name: item.name, family: item.family, correlationGroup: item.correlationGroup, value: item.value, state: item.state, interpretation: item.interpretation, score: item.score })),
         }),
       });
+      if (!response.ok) throw new Error("LLM review failed");
       const review = await response.json() as LlmReview;
       setLlm(review);
       const finalScore = review.configured ? Math.round(analysis.quantScore * .8 + review.direction_score * .2) : analysis.quantScore;
       const entry: SignalLog = { id: makeId(), timestamp: Date.now(), symbol: analysis.symbol, interval: analysis.interval, quantScore: analysis.quantScore, llmScore: review.configured ? review.direction_score : null, finalScore, direction: scoreLabel(finalScore), approval: review.approval };
-      persistLogs([entry, ...logs]);
+      persistLog(entry);
     } catch {
       setLlm(null);
     } finally {
       setLlmLoading(false);
     }
-  }, [analysis, logs, persistLogs]);
+  }, [analysis, persistLog]);
 
   useEffect(() => {
     const key = `${market.symbol}-${market.interval}-${market.candles.at(-1)?.openTime}`;
@@ -460,6 +529,7 @@ export default function Home() {
       Promise.all(SYMBOLS.map(async (item) => {
         try {
           const response = await fetch(`/api/market?symbol=${item}&interval=15m`, { cache: "no-store" });
+          if (!response.ok) throw new Error("Scanner market data failed");
           return analyzeMarket(await response.json() as MarketPayload);
         } catch { return analyzeMarket(makeDemoMarket(item, "15m")); }
       })).then((rows) => {
@@ -480,7 +550,20 @@ export default function Home() {
       if (!hit) return alert;
       changed = true;
       if (gmailStatus.configured) {
-        fetch("/api/gmail", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subject: `[${analysis.direction}] ${alert.symbol} ${alert.interval} alarmı`, html: `<h2>QuantScope alarmı</h2><p>${alert.symbol} fiyatı ${formatPrice(market.ticker.lastPrice)} seviyesine ulaştı.</p><p>Quant skor: <b>${analysis.quantScore}</b> · Güven: <b>%${analysis.confidence}</b></p>` }) }).catch(() => undefined);
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "alert",
+            symbol: alert.symbol,
+            interval: alert.interval,
+            direction: analysis.direction,
+            lastPrice: market.ticker.lastPrice,
+            threshold: alert.threshold,
+            quantScore: analysis.quantScore,
+            confidence: analysis.confidence,
+          }),
+        }).catch(() => undefined);
       }
       return { ...alert, lastTriggered: now, active: false };
     });
@@ -490,7 +573,7 @@ export default function Home() {
   const testGmail = async () => {
     setGmailMessage("Gönderiliyor…");
     try {
-      const response = await fetch("/api/gmail", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subject: "QuantScope Gmail bağlantı testi", html: "<h2>Bağlantı başarılı</h2><p>QuantScope alarm motoru e-posta göndermeye hazır.</p>" }) });
+      const response = await fetch("/api/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test" }) });
       setGmailMessage(response.ok ? "Test e-postası gönderildi." : "Gönderim başarısız.");
     } catch { setGmailMessage("Gönderim başarısız."); }
   };

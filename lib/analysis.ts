@@ -464,6 +464,11 @@ export function analyzeMarket(payload: MarketPayload): AnalysisResult {
 
 export function makeDemoMarket(symbol = "BTCUSDT", interval = "15m"): MarketPayload {
   const now = Date.now();
+  const intervalMatch = interval.match(/^(\d+)([mhdw])$/);
+  const intervalUnitMs = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+  const intervalDuration = intervalMatch
+    ? Number(intervalMatch[1]) * intervalUnitMs[intervalMatch[2] as keyof typeof intervalUnitMs]
+    : 900_000;
   const base = symbol.startsWith("BTC") ? 65842 : symbol.startsWith("ETH") ? 3420 : symbol.startsWith("SOL") ? 168 : 100;
   let value = base * .91;
   const candles: Candle[] = Array.from({ length: 260 }, (_, index) => {
@@ -475,8 +480,8 @@ export function makeDemoMarket(symbol = "BTCUSDT", interval = "15m"): MarketPayl
     const low = Math.min(open, close) - Math.abs(Math.sin(index * .7)) * base * .0016;
     value = close;
     return {
-      openTime: now - (260 - index) * 900_000,
-      closeTime: now - (259 - index) * 900_000 - 1,
+      openTime: now - (260 - index) * intervalDuration,
+      closeTime: now - (259 - index) * intervalDuration - 1,
       open,
       high,
       low,

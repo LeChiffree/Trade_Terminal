@@ -10,22 +10,23 @@ export function normalizeMarketQuery(symbolValue: string | null, intervalValue: 
 }
 
 async function fetchJson(path: string) {
-  try {
-    return await Promise.any(BASE_URLS.map(async (baseUrl) => {
+  for (const baseUrl of BASE_URLS) {
+    try {
       const response = await fetch(`${baseUrl}${path}`, {
         headers: { Accept: "application/json", "User-Agent": "QuantScope/0.1" },
-        signal: AbortSignal.timeout(4_000),
+        signal: AbortSignal.timeout(5_000),
         cache: "no-store",
       });
       if (!response.ok) throw new Error(`Binance ${response.status}`);
       return await response.json();
-    }));
-  } catch {
-    throw new Error("Market data unavailable");
+    } catch {
+      // Try the next official Binance market-data endpoint.
+    }
   }
+  throw new Error("Market data unavailable");
 }
 
-function parseCandles(rows: unknown): Candle[] {
+function parseCandles(rows: unknown, now = Date.now()): Candle[] {
   if (!Array.isArray(rows)) return [];
   return rows.map((row) => {
     const item = row as Array<string | number>;
@@ -41,38 +42,68 @@ function parseCandles(rows: unknown): Candle[] {
       trades: Number(item[8]),
       takerBuyVolume: Number(item[9]),
     };
-  }).filter((candle) => Number.isFinite(candle.close) && candle.close > 0);
+  }).filter((candle) =>
+    Number.isFinite(candle.openTime) &&
+    Number.isFinite(candle.closeTime) &&
+    candle.closeTime < now &&
+    Number.isFinite(candle.open) &&
+    Number.isFinite(candle.high) &&
+    Number.isFinite(candle.low) &&
+    Number.isFinite(candle.close) &&
+    Number.isFinite(candle.volume) &&
+    candle.open > 0 &&
+    candle.high >= candle.low &&
+    candle.close > 0
+  );
+}
+
+function finiteOr(value: unknown, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function parseBookSide(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row): [number, number][] => {
+    if (!Array.isArray(row)) return [];
+    const price = Number(row[0]);
+    const quantity = Number(row[1]);
+    return Number.isFinite(price) && price > 0 && Number.isFinite(quantity) && quantity >= 0
+      ? [[price, quantity]]
+      : [];
+  });
 }
 
 export async function fetchBinanceMarket(symbol: string, interval: string, limit = 300): Promise<MarketPayload> {
   try {
     const encodedSymbol = encodeURIComponent(symbol);
     const encodedInterval = encodeURIComponent(interval);
+    const requestedLimit = Math.min(499, Math.max(100, Math.trunc(limit)));
     const [klineRows, tickerRaw, depthRaw] = await Promise.all([
-      fetchJson(`/api/v3/klines?symbol=${encodedSymbol}&interval=${encodedInterval}&limit=${Math.min(500, Math.max(100, limit))}`),
+      fetchJson(`/api/v3/klines?symbol=${encodedSymbol}&interval=${encodedInterval}&limit=${requestedLimit + 1}`),
       fetchJson(`/api/v3/ticker/24hr?symbol=${encodedSymbol}`),
       fetchJson(`/api/v3/depth?symbol=${encodedSymbol}&limit=20`),
     ]);
     const ticker = tickerRaw as Record<string, string>;
-    const depth = depthRaw as { bids?: string[][]; asks?: string[][] };
-    const candles = parseCandles(klineRows);
+    const depth = depthRaw as { bids?: unknown; asks?: unknown };
+    const candles = parseCandles(klineRows).slice(-requestedLimit);
     if (candles.length < 50) throw new Error("Insufficient candle history");
+    const lastClose = candles.at(-1)?.close ?? 0;
+    const bids = parseBookSide(depth.bids);
+    const asks = parseBookSide(depth.asks);
     return {
       symbol,
       interval,
       candles,
       ticker: {
-        lastPrice: Number(ticker.lastPrice),
-        priceChange: Number(ticker.priceChange),
-        priceChangePercent: Number(ticker.priceChangePercent),
-        highPrice: Number(ticker.highPrice),
-        lowPrice: Number(ticker.lowPrice),
-        quoteVolume: Number(ticker.quoteVolume),
+        lastPrice: finiteOr(ticker.lastPrice, lastClose),
+        priceChange: finiteOr(ticker.priceChange, 0),
+        priceChangePercent: finiteOr(ticker.priceChangePercent, 0),
+        highPrice: finiteOr(ticker.highPrice, lastClose),
+        lowPrice: finiteOr(ticker.lowPrice, lastClose),
+        quoteVolume: finiteOr(ticker.quoteVolume, 0),
       },
-      book: {
-        bids: (depth.bids ?? []).map(([price, quantity]) => [Number(price), Number(quantity)] as [number, number]),
-        asks: (depth.asks ?? []).map(([price, quantity]) => [Number(price), Number(quantity)] as [number, number]),
-      },
+      book: { bids, asks },
       fetchedAt: Date.now(),
       source: "binance",
     };
@@ -83,8 +114,11 @@ export async function fetchBinanceMarket(symbol: string, interval: string, limit
 
 export async function fetchBinanceCandles(symbol: string, interval: string, limit = 260) {
   try {
-    const rows = await fetchJson(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`);
-    return { candles: parseCandles(rows), source: "binance" as const };
+    const requestedLimit = Math.min(499, Math.max(50, Math.trunc(limit)));
+    const rows = await fetchJson(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${requestedLimit + 1}`);
+    const candles = parseCandles(rows).slice(-requestedLimit);
+    if (candles.length < 50) throw new Error("Insufficient candle history");
+    return { candles, source: "binance" as const };
   } catch {
     return { candles: makeDemoMarket(symbol, interval).candles, source: "demo" as const };
   }
