@@ -113,6 +113,15 @@ function blendDecisionScores(quantScore: number, contextScore: number | null, ll
   return quantScore;
 }
 
+function decisionContextScore(context: MarketContextPayload | null, symbol: string) {
+  if (!context || context.source === "fallback") return null;
+  if (!context.global.available) return context.scores.overall;
+  const dominanceDeviation = Math.min(15, Math.max(-15, context.global.btcDominance - 50));
+  const rotationBias = symbol.startsWith("BTC") ? dominanceDeviation * 1.5 : -dominanceDeviation;
+  const activityMultiplier = Math.min(1.15, Math.max(.9, .85 + context.global.turnoverRate * .06));
+  return Math.round(Math.min(100, Math.max(-100, (context.scores.overall + rotationBias * .25) * activityMultiplier)));
+}
+
 function signedScore(score: number) {
   return `${score > 0 ? "+" : ""}${score}`;
 }
@@ -312,7 +321,7 @@ function MarketContextPanel({ context, loading }: { context: MarketContextPayloa
           ))}
         </div>
       </div>
-      <p className="context-method">Final karar; teknik quant skoru, global bağlam skoru ve yalnızca manuel çalıştırılırsa Gemini görüşünü ağırlıklı olarak birleştirir. Hacim tek başına yön sinyali sayılmaz.</p>
+      <p className="context-method">Final karar; teknik quant skoru, global bağlam skoru ve yalnızca manuel çalıştırılırsa Gemini görüşünü ağırlıklı olarak birleştirir. Global hacim güveni, BTC dominansı ise BTC/altcoin rotasyon etkisini ayarlar; hacim tek başına yön sinyali sayılmaz.</p>
     </section>
   );
 }
@@ -339,12 +348,15 @@ function AnalysisView({
   runLlmReview: () => void;
 }) {
   const llmScore = llm?.direction_score ?? 0;
-  const contextScore = context && context.source !== "fallback" ? context.scores.overall : null;
+  const contextScore = decisionContextScore(context, market.symbol);
   const conflict = llm?.configured && Math.sign(llmScore) !== Math.sign(analysis.quantScore) && Math.abs(llmScore) >= 20 && Math.abs(analysis.quantScore) >= 20;
   const finalScore = blendDecisionScores(analysis.quantScore, contextScore, llm?.configured ? llmScore : null);
   const finalLabel = conflict ? "CONFLICT / WAIT" : scoreLabel(finalScore);
   const reasons = llm?.configured ? llm.top_reasons : analysis.reasons;
   const risks = llm?.configured ? [...llm.contradictions, ...llm.risk_flags] : analysis.contradictions;
+  const baseConfidence = llm?.configured ? analysis.confidence * .75 + llm.confidence * .25 : analysis.confidence;
+  const activityAdjustment = context?.global.available ? Math.min(6, Math.max(-6, (context.global.turnoverRate - 2.5) * 4)) : 0;
+  const finalConfidence = Math.round(Math.min(100, Math.max(0, baseConfidence + activityAdjustment)));
 
   return (
     <>
@@ -370,7 +382,7 @@ function AnalysisView({
           <button className="llm-run" disabled={llmLoading || loading || contextLoading} onClick={runLlmReview}>{loading ? "Piyasa verisi bekleniyor…" : contextLoading ? "Global bağlam bekleniyor…" : llmLoading ? "Gemini değerlendiriyor…" : llm?.configured ? "Gemini yorumunu yenile" : "Gemini değerlendirmesi iste"}</button>
           <div className="context-impact"><span>Global bağlam</span><strong className={contextScore === null ? "neutral" : scoreTone(contextScore)}>{contextScore === null ? "—" : signedScore(contextScore)}</strong><small>{context?.scores.label ?? "Veri bekleniyor"}</small></div>
           <div className={`consensus ${conflict ? "conflict" : ""}`}><div><small>FINAL CONSENSUS</small><strong>{finalScore > 0 ? "+" : ""}{finalScore}</strong></div><span>{finalLabel}</span></div>
-          <div className="confidence"><div><span>Güven</span><b>%{llm?.configured ? Math.round(analysis.confidence * .75 + llm.confidence * .25) : analysis.confidence}</b></div><div className="meter"><i style={{ width: `${analysis.confidence}%` }} /></div></div>
+          <div className="confidence"><div><span>Güven · global hacim ayarlı</span><b>%{finalConfidence}</b></div><div className="meter"><i style={{ width: `${finalConfidence}%` }} /></div></div>
           <div className="reason-list">
             {reasons.slice(0, 2).map((reason, index) => <p key={reason}><span>{index ? "◫" : "↑"}</span><b>{index ? "İkinci teyit" : "Ana gerekçe"}</b><small>{reason}</small></p>)}
             {risks.slice(0, 1).map((risk) => <p className="warn" key={risk}><span>!</span><b>Risk bayrağı</b><small>{risk}</small></p>)}
@@ -614,6 +626,17 @@ export default function Home() {
     setLlmLoading(true);
     try {
       const macroFacts: Array<{ name: string; family: string; correlationGroup: string; value: string; state: string; interpretation: string; score: number }> = [];
+      if (marketContext?.global.available) {
+        macroFacts.push({
+          name: "Global piyasa hacmi ve dominans",
+          family: "Global bağlam",
+          correlationGroup: "macro-market-activity",
+          value: `$${compactFormatter.format(marketContext.global.total24hVolume)}`,
+          state: `BTC dominansı %${priceFormatter.format(marketContext.global.btcDominance)}`,
+          interpretation: `Toplam piyasa değeri $${compactFormatter.format(marketContext.global.totalMarketCap)}, 24 saatlik hacim $${compactFormatter.format(marketContext.global.total24hVolume)}, devir oranı %${priceFormatter.format(marketContext.global.turnoverRate)}. Hacim tek başına yön sinyali değildir.`,
+          score: 0,
+        });
+      }
       if (marketContext?.fearGreed.available) {
         macroFacts.push({
           name: "Fear & Greed",
@@ -665,7 +688,7 @@ export default function Home() {
       const review = await response.json() as LlmReview;
       setLlm(review);
       setLlmContextKey(currentContextKey);
-      const contextScore = marketContext && marketContext.source !== "fallback" ? marketContext.scores.overall : null;
+      const contextScore = decisionContextScore(marketContext, analysis.symbol);
       const finalScore = blendDecisionScores(analysis.quantScore, contextScore, review.configured ? review.direction_score : null);
       const entry: SignalLog = { id: makeId(), timestamp: Date.now(), symbol: analysis.symbol, interval: analysis.interval, quantScore: analysis.quantScore, llmScore: review.configured ? review.direction_score : null, finalScore, direction: scoreLabel(finalScore), approval: review.approval };
       persistLog(entry);
