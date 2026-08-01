@@ -45,6 +45,8 @@ input, select { font: inherit; color-scheme: dark; }
 .top-actions { display: flex; align-items: center; gap: 10px; }
 .freshness { color: var(--mint); background: #0d1a15; border: 1px solid #19352a; border-radius: 20px; padding: 7px 11px; font-size: 8px; font-weight: 800; letter-spacing: .08em; }
 .freshness span { color: #6a8077; font-weight: 500; letter-spacing: 0; }
+.freshness.offline { color: var(--amber); background: #1d170c; border-color: #4a3b1c; }
+.freshness.offline i { background: var(--amber); box-shadow: 0 0 10px rgba(246, 185, 74, .55); }
 .icon-button, .primary-button, .ghost-button, .star { border: 1px solid var(--line); color: #a9b8b5; background: #0c1217; border-radius: 8px; cursor: pointer; transition: .2s ease; }
 .icon-button { width: 34px; height: 34px; position: relative; }.icon-button em { position: absolute; right: -3px; top: -4px; background: var(--red); color: white; font-size: 7px; border-radius: 10px; padding: 2px 4px; font-style: normal; }
 .primary-button { height: 34px; padding: 0 15px; background: var(--mint); border-color: var(--mint); color: #06100c; font-size: 11px; font-weight: 800; }

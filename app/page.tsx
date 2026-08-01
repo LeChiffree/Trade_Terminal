@@ -9,6 +9,15 @@ import {
   type IndicatorResult,
   type MarketPayload,
 } from "@/lib/analysis";
+import {
+  fetchBinanceCandleHistory,
+  fetchBinanceMarketSnapshot,
+  fetchTopBinanceSymbols,
+} from "@/lib/binance";
+import {
+  connectBinanceMarketStream,
+  type BinanceStreamStatus,
+} from "@/lib/binance-stream";
 import { blendDecisionScores, decisionContextScore } from "@/lib/decision";
 import type { MarketContextPayload } from "@/lib/market-context";
 
@@ -363,6 +372,8 @@ function AnalysisView({
   loading,
   context,
   contextLoading,
+  liveDataReady,
+  streamStatus,
   runLlmReview,
 }: {
   market: MarketPayload;
@@ -373,22 +384,25 @@ function AnalysisView({
   loading: boolean;
   context: MarketContextPayload | null;
   contextLoading: boolean;
+  liveDataReady: boolean;
+  streamStatus: BinanceStreamStatus;
   runLlmReview: () => void;
 }) {
   const llmScore = llm?.direction_score ?? 0;
-  const contextScore = decisionContextScore(context, market.symbol);
-  const conflict = llm?.configured && Math.sign(llmScore) !== Math.sign(analysis.quantScore) && Math.abs(llmScore) >= 20 && Math.abs(analysis.quantScore) >= 20;
-  const finalScore = blendDecisionScores(analysis.quantScore, contextScore, llm?.configured ? llmScore : null);
-  const finalLabel = conflict ? "CONFLICT / WAIT" : scoreLabel(finalScore);
-  const reasons = llm?.configured ? llm.top_reasons : analysis.reasons;
-  const risks = llm?.configured ? [...llm.contradictions, ...llm.risk_flags] : analysis.contradictions;
+  const quantScore = liveDataReady ? analysis.quantScore : 0;
+  const contextScore = liveDataReady ? decisionContextScore(context, market.symbol) : null;
+  const conflict = liveDataReady && llm?.configured && Math.sign(llmScore) !== Math.sign(quantScore) && Math.abs(llmScore) >= 20 && Math.abs(quantScore) >= 20;
+  const finalScore = liveDataReady ? blendDecisionScores(quantScore, contextScore, llm?.configured ? llmScore : null) : 0;
+  const finalLabel = !liveDataReady ? "CANLI VERİ BEKLENİYOR" : conflict ? "CONFLICT / WAIT" : scoreLabel(finalScore);
+  const reasons = liveDataReady ? (llm?.configured ? llm.top_reasons : analysis.reasons) : [];
+  const risks = liveDataReady ? (llm?.configured ? [...llm.contradictions, ...llm.risk_flags] : analysis.contradictions) : [];
   const baseConfidence = llm?.configured ? analysis.confidence * .75 + llm.confidence * .25 : analysis.confidence;
   const activityAdjustment = context?.global.available ? Math.min(6, Math.max(-6, (context.global.turnoverRate - 2.5) * 4)) : 0;
-  const finalConfidence = Math.round(Math.min(100, Math.max(0, baseConfidence + activityAdjustment)));
+  const finalConfidence = liveDataReady ? Math.round(Math.min(100, Math.max(0, baseConfidence + activityAdjustment))) : 0;
 
   return (
     <>
-      {market.source === "demo" && <div className="source-banner"><span>DEMO VERİ</span> Binance erişimi bu istekte alınamadı; arayüz kesintisiz test edilebilsin diye sentetik seri gösteriliyor.</div>}
+      {!liveDataReady && <div className="source-banner"><span>{market.source === "demo" ? "CANLI VERİ YOK" : "AKIŞ BEKLENİYOR"}</span> {market.source === "demo" ? "Binance geçmiş mumları alınamadı; Quant ve Gemini gerçek veri gelene kadar devre dışı." : `Binance WebSocket ${streamStatus === "reconnecting" ? "yeniden bağlanıyor" : "bağlantısı hazırlanıyor"}; son canlı grafik korunuyor.`}</div>}
       <div className="analysis-grid">
         <section className="panel chart-panel">
           <div className="panel-head"><div><span className="eyebrow">FİYAT AKIŞI · {market.symbol} · {market.interval}</span><h2>{analysis.regime}</h2></div><div className="legend"><span className="mint-dot" /> EMA20 <span className="amber-dot" /> Son fiyat</div></div>
@@ -402,12 +416,12 @@ function AnalysisView({
         </section>
 
         <aside className="panel decision-panel">
-          <div className="panel-head"><div><span className="eyebrow">KARAR MOTORU</span><h2>{finalLabel.replace("STRONG ", "Güçlü ")}</h2></div><span className={`approved ${conflict ? "rejected" : ""}`}>{conflict ? "● ÇELİŞKİ" : llm?.configured ? "● LLM ONAYI" : "● QUANT"}</span></div>
+          <div className="panel-head"><div><span className="eyebrow">KARAR MOTORU</span><h2>{finalLabel.replace("STRONG ", "Güçlü ")}</h2></div><span className={`approved ${conflict || !liveDataReady ? "rejected" : ""}`}>{!liveDataReady ? "● BEKLE" : conflict ? "● ÇELİŞKİ" : llm?.configured ? "● LLM ONAYI" : "● QUANT"}</span></div>
           <div className="score-pair">
-            <ScoreRing score={analysis.quantScore} label="Quant engine" tone="mint" />
+            <ScoreRing score={quantScore} label="Quant engine" tone="mint" />
             <ScoreRing score={llmScore} label={llm?.configured ? `LLM · ${llm.provider}` : "Demo approver"} tone="violet" muted={!llm} />
           </div>
-          <button className="llm-run" disabled={llmLoading || loading || contextLoading} onClick={runLlmReview}>{loading ? "Piyasa verisi bekleniyor…" : contextLoading ? "Global bağlam bekleniyor…" : llmLoading ? "Gemini değerlendiriyor…" : llm?.configured ? "Gemini yorumunu yenile" : "Gemini değerlendirmesi iste"}</button>
+          <button className="llm-run" disabled={!liveDataReady || llmLoading || loading || contextLoading} onClick={runLlmReview}>{!liveDataReady ? "Canlı Binance verisi bekleniyor…" : loading ? "Piyasa verisi bekleniyor…" : contextLoading ? "Global bağlam bekleniyor…" : llmLoading ? "Gemini değerlendiriyor…" : llm?.configured ? "Gemini yorumunu yenile" : "Gemini değerlendirmesi iste"}</button>
           <div className="context-impact"><span>Global bağlam</span><strong className={contextScore === null ? "neutral" : scoreTone(contextScore)}>{contextScore === null ? "—" : signedScore(contextScore)}</strong><small>{context?.scores.label ?? "Veri bekleniyor"}</small></div>
           <div className={`consensus ${conflict ? "conflict" : ""}`}><div><small>FINAL CONSENSUS</small><strong>{finalScore > 0 ? "+" : ""}{finalScore}</strong></div><span>{finalLabel}</span></div>
           <div className="confidence"><div><span>Güven · global hacim ayarlı</span><b>%{finalConfidence}</b></div><div className="meter"><i style={{ width: `${finalConfidence}%` }} /></div></div>
@@ -563,6 +577,7 @@ export default function Home() {
   const [scannerStatus, setScannerStatus] = useState<ScannerStatus | null>(null);
   const [contextLoading, setContextLoading] = useState(true);
   const [freshnessNow, setFreshnessNow] = useState(0);
+  const [streamStatus, setStreamStatus] = useState<BinanceStreamStatus>("connecting");
   const latestMarketRef = useRef(market);
   const analysis = useMemo(() => analyzeMarket(market), [market]);
   const lastCandleOpenTime = market.candles.at(-1)?.openTime;
@@ -605,16 +620,26 @@ export default function Home() {
       setLlmStatus(llmHealth);
       setGmailStatus(gmailHealth);
     }).catch(() => undefined);
-    fetch("/api/symbols").then(async (response) => {
-      if (!response.ok) throw new Error("Symbol directory failed");
-      return await response.json() as { symbols?: SymbolOption[] };
-    }).then((directory) => {
-      if (!disposed && Array.isArray(directory.symbols) && directory.symbols.length === 50) {
-        setSymbolOptions(directory.symbols);
+    const loadSymbols = async () => {
+      try {
+        const browserDirectory = await fetchTopBinanceSymbols(50);
+        if (browserDirectory.source === "binance" && browserDirectory.symbols.length === 50) {
+          if (!disposed) setSymbolOptions(browserDirectory.symbols);
+          return;
+        }
+        const response = await fetch("/api/symbols", { cache: "no-store" });
+        if (!response.ok) throw new Error("Symbol directory failed");
+        const directory = await response.json() as { symbols?: SymbolOption[]; source?: string };
+        if (!disposed && directory.source === "binance" && Array.isArray(directory.symbols) && directory.symbols.length === 50) {
+          setSymbolOptions(directory.symbols);
+        }
+      } catch {
+        // Keep the explicit fallback list when neither browser nor server can reach Binance.
+      } finally {
+        if (!disposed) setSymbolsLoading(false);
       }
-    }).catch(() => undefined).finally(() => {
-      if (!disposed) setSymbolsLoading(false);
-    });
+    };
+    void loadSymbols();
     return () => {
       disposed = true;
       window.clearTimeout(restoreTimer);
@@ -670,44 +695,72 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
-      setLoading(true);
+    const load = async (showLoading: boolean) => {
+      if (showLoading) setLoading(true);
       try {
-        const response = await fetch(`/api/market?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(timeframe)}`, { cache: "no-store" });
-        if (!response.ok) throw new Error("Market data failed");
-        const data = await response.json() as MarketPayload;
+        let data: MarketPayload;
+        try {
+          data = await fetchBinanceMarketSnapshot(symbol, timeframe, 300);
+        } catch {
+          const response = await fetch(`/api/market?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(timeframe)}`, { cache: "no-store" });
+          if (!response.ok) throw new Error("Market data failed");
+          data = await response.json() as MarketPayload;
+          if (data.source !== "binance") throw new Error("Live Binance market unavailable");
+        }
         if (!cancelled) setMarket(data);
       } catch {
         if (!cancelled) setMarket(makeDemoMarket(symbol, timeframe));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && showLoading) setLoading(false);
       }
     };
-    load();
-    const timer = window.setInterval(load, 30_000);
+    void load(true);
+    const timer = window.setInterval(() => void load(false), 5 * 60_000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [symbol, timeframe]);
 
   useEffect(() => {
-    const baseMarket = latestMarketRef.current;
-    if (baseMarket.symbol !== symbol) return;
+    return connectBinanceMarketStream(symbol, timeframe, {
+      onMarketUpdate: setMarket,
+      onStatus: setStreamStatus,
+    });
+  }, [symbol, timeframe]);
+
+  useEffect(() => {
+    if (market.symbol !== symbol || market.source !== "binance") return;
     let cancelled = false;
-    fetch(`/api/multi?symbol=${symbol}`, { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) throw new Error("Multi-timeframe data failed");
-      return await response.json() as { intervals: Record<string, { candles: Candle[]; source: "binance" | "demo" }> };
-    }).then((data: { intervals: Record<string, { candles: Candle[]; source: "binance" | "demo" }> }) => {
+    const loadMultiTimeframe = async () => {
+      const baseMarket = latestMarketRef.current;
+      if (baseMarket.symbol !== symbol || baseMarket.source !== "binance") return;
+      const settled = await Promise.allSettled(
+        TIMEFRAMES.map(async (interval) => [
+          interval,
+          await fetchBinanceCandleHistory(symbol, interval, 260, true),
+        ] as const),
+      );
       if (cancelled) return;
       const results: Record<string, AnalysisResult> = {};
-      for (const interval of TIMEFRAMES) {
-        const result = data.intervals[interval];
-        if (result?.candles) results[interval] = analyzeMarket({ ...baseMarket, symbol, interval, candles: result.candles, source: result.source });
+      for (const result of settled) {
+        if (result.status !== "fulfilled") continue;
+        const [interval, candles] = result.value;
+        results[interval] = analyzeMarket({ ...baseMarket, symbol, interval, candles, source: "binance" });
       }
       setMulti(results);
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [symbol, market.symbol]);
+    };
+    void loadMultiTimeframe();
+    const timer = window.setInterval(() => void loadMultiTimeframe(), 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [symbol, market.symbol, market.source]);
 
   const runLlmReview = useCallback(async () => {
+    if (
+      market.source !== "binance" ||
+      streamStatus !== "live" ||
+      Date.now() - market.fetchedAt > 10_000
+    ) return;
     setLlmLoading(true);
     try {
       const macroFacts: Array<{ name: string; family: string; correlationGroup: string; value: string; state: string; interpretation: string; score: number }> = [];
@@ -783,9 +836,14 @@ export default function Home() {
     } finally {
       setLlmLoading(false);
     }
-  }, [analysis, currentContextKey, marketContext, persistLog]);
+  }, [analysis, currentContextKey, market.source, market.fetchedAt, marketContext, persistLog, streamStatus]);
 
   useEffect(() => {
+    if (
+      market.source !== "binance" ||
+      streamStatus !== "live" ||
+      Date.now() - market.fetchedAt > 10_000
+    ) return;
     const now = Date.now();
     let changed = false;
     const next = alerts.map((alert) => {
@@ -812,7 +870,7 @@ export default function Home() {
       return { ...alert, lastTriggered: now, active: false };
     });
     if (changed) window.setTimeout(() => persistAlerts(next), 0);
-  }, [market.ticker.lastPrice, market.symbol, alerts, analysis, gmailStatus.configured, persistAlerts]);
+  }, [market.ticker.lastPrice, market.symbol, market.source, market.fetchedAt, alerts, analysis, gmailStatus.configured, persistAlerts, streamStatus]);
 
   const testGmail = async () => {
     setGmailMessage("Gönderiliyor…");
@@ -827,6 +885,8 @@ export default function Home() {
     setLoading(true);
     setSymbol(nextSymbol);
     setMarket(makeDemoMarket(nextSymbol, timeframe));
+    setMulti({});
+    setStreamStatus("connecting");
     setLlm(null);
     setLlmContextKey("");
   };
@@ -835,6 +895,8 @@ export default function Home() {
     setLoading(true);
     setTimeframe(nextTimeframe);
     setMarket(makeDemoMarket(symbol, nextTimeframe));
+    setMulti({});
+    setStreamStatus("connecting");
     setLlm(null);
     setLlmContextKey("");
   };
@@ -843,19 +905,33 @@ export default function Home() {
     setActiveNav("Analiz");
   };
   const freshness = Math.max(0, Math.round((freshnessNow - market.fetchedAt) / 1000));
+  const liveDataReady =
+    !loading &&
+    market.source === "binance" &&
+    market.symbol === symbol &&
+    market.interval === timeframe &&
+    streamStatus === "live" &&
+    freshness <= 10;
+  const streamLabel = liveDataReady
+    ? "Binance WebSocket"
+    : streamStatus === "reconnecting"
+      ? "Akış yeniden bağlanıyor"
+      : streamStatus === "connecting"
+        ? "Binance bağlanıyor"
+        : "Canlı veri yok";
 
   return (
     <main className="app-frame">
       <aside className="side-rail">
         <div className="brand-mark"><span>Q</span><b>QuantScope</b></div>
         <nav aria-label="Ana navigasyon">{NAV.map((item) => <button key={item.label} className={activeNav === item.label ? "active" : ""} onClick={() => setActiveNav(item.label)}><span>{item.glyph}</span>{item.label}</button>)}</nav>
-        <div className="rail-foot"><div className="status-dot"><i className={market.source === "binance" ? "" : "demo"} /> {market.source === "binance" ? "Binance bağlı" : "Demo akışı"}</div><div className="user-badge"><span>HA</span><div><b>Hikmet</b><small>Owner workspace</small></div></div></div>
+        <div className="rail-foot"><div className="status-dot"><i className={liveDataReady ? "" : "demo"} /> {streamLabel}</div><div className="user-badge"><span>HA</span><div><b>Hikmet</b><small>Owner workspace</small></div></div></div>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div><small>CANLI TEKNİK KARAR TERMİNALİ</small><h1>{activeNav}</h1></div>
-          <div className="top-actions"><div className="freshness"><i /> {loading ? "YÜKLENİYOR" : "CANLI"} <span>• {freshness} sn önce</span></div><button className="icon-button" aria-label="Bildirimler">◌<em>{alerts.filter((alert) => alert.active).length}</em></button><button className="primary-button" onClick={() => setActiveNav("Alarmlar")}>＋ Yeni alarm</button></div>
+          <div className="top-actions"><div className={`freshness ${liveDataReady ? "" : "offline"}`}><i /> {loading ? "YÜKLENİYOR" : liveDataReady ? "WS CANLI" : "AKIŞ BEKLENİYOR"} <span>• {freshness} sn önce</span></div><button className="icon-button" aria-label="Bildirimler">◌<em>{alerts.filter((alert) => alert.active).length}</em></button><button className="primary-button" onClick={() => setActiveNav("Alarmlar")}>＋ Yeni alarm</button></div>
         </header>
 
         <div className="symbol-row">
@@ -866,9 +942,9 @@ export default function Home() {
           <button className={`star ${starred ? "on" : ""}`} onClick={() => setStarred(!starred)} aria-label="Favoriye ekle">★</button>
         </div>
 
-        <div className="timeframe-row"><div className="segmented" aria-label="Zaman dilimi">{TIMEFRAMES.map((item) => <button key={item} className={timeframe === item ? "active" : ""} onClick={() => changeTimeframe(item)}>{item}</button>)}</div><div className="candle-state"><span /> Kapanmış mum analizi <b>{timeframe}</b> · Kalite %{analysis.dataQuality}</div></div>
+        <div className="timeframe-row"><div className="segmented" aria-label="Zaman dilimi">{TIMEFRAMES.map((item) => <button key={item} className={timeframe === item ? "active" : ""} onClick={() => changeTimeframe(item)}>{item}</button>)}</div><div className="candle-state"><span /> Canlı mum · kapanmış swing yapısı <b>{timeframe}</b> · Kalite %{liveDataReady ? analysis.dataQuality : 0}</div></div>
 
-        {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={displayedLlm} llmLoading={llmLoading} loading={loading} context={marketContext} contextLoading={contextLoading} runLlmReview={runLlmReview} />}
+        {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={displayedLlm} llmLoading={llmLoading} loading={loading} context={marketContext} contextLoading={contextLoading} liveDataReady={liveDataReady} streamStatus={streamStatus} runLlmReview={runLlmReview} />}
         {activeNav === "Tarayıcı" && <ScannerView rows={symbolOptions} loading={symbolsLoading} onSelect={selectScannerSymbol} status={scannerStatus} now={freshnessNow} />}
         {activeNav === "Alarmlar" && <AlertsView key={`${market.symbol}-${market.interval}`} alerts={alerts} setAlerts={persistAlerts} market={market} gmailConfigured={gmailStatus.configured} />}
         {activeNav === "Geçmiş" && <HistoryView logs={logs} />}

@@ -1,6 +1,10 @@
 import { makeDemoMarket, type Candle, type MarketPayload } from "./analysis";
 
-const BASE_URLS = ["https://data-api.binance.vision", "https://api.binance.com"];
+const BASE_URLS = [
+  "https://data-api.binance.vision",
+  "https://api.binance.com",
+  "https://api-gcp.binance.com",
+];
 const INTERVALS = new Set(["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w"]);
 const STABLE_ASSETS = new Set([
   "USDT", "USDC", "FDUSD", "TUSD", "USDP", "DAI", "USDE", "USD1", "PYUSD",
@@ -43,7 +47,9 @@ async function fetchJson(path: string) {
   for (const baseUrl of BASE_URLS) {
     try {
       const response = await fetch(`${baseUrl}${path}`, {
-        headers: { Accept: "application/json", "User-Agent": "QuantScope/0.1" },
+        headers: typeof window === "undefined"
+          ? { Accept: "application/json", "User-Agent": "QuantScope/0.1" }
+          : { Accept: "application/json" },
         signal: AbortSignal.timeout(5_000),
         cache: "no-store",
       });
@@ -75,7 +81,7 @@ function parseCandles(rows: unknown, now = Date.now(), closedOnly = true): Candl
   }).filter((candle) =>
     Number.isFinite(candle.openTime) &&
     Number.isFinite(candle.closeTime) &&
-    (!closedOnly || candle.openTime <= now) &&
+    (!closedOnly || candle.closeTime <= now) &&
     Number.isFinite(candle.open) &&
     Number.isFinite(candle.high) &&
     Number.isFinite(candle.low) &&
@@ -198,51 +204,74 @@ function parseBookSide(value: unknown) {
   });
 }
 
+export async function fetchBinanceMarketSnapshot(
+  symbol: string,
+  interval: string,
+  limit = 300,
+): Promise<MarketPayload> {
+  const encodedSymbol = encodeURIComponent(symbol);
+  const encodedInterval = encodeURIComponent(interval);
+  const requestedLimit = Math.min(499, Math.max(100, Math.trunc(limit)));
+  const [klineRows, tickerRaw, depthRaw] = await Promise.all([
+    fetchJson(`/api/v3/klines?symbol=${encodedSymbol}&interval=${encodedInterval}&limit=${requestedLimit}`),
+    fetchJson(`/api/v3/ticker/24hr?symbol=${encodedSymbol}`),
+    fetchJson(`/api/v3/depth?symbol=${encodedSymbol}&limit=20`),
+  ]);
+  const ticker = tickerRaw as Record<string, string>;
+  const depth = depthRaw as { bids?: unknown; asks?: unknown };
+  const candles = parseCandles(klineRows, Date.now(), false).slice(-requestedLimit);
+  if (candles.length < 50) throw new Error("Insufficient candle history");
+  const lastClose = candles.at(-1)?.close ?? 0;
+  const bids = parseBookSide(depth.bids);
+  const asks = parseBookSide(depth.asks);
+  return {
+    symbol,
+    interval,
+    candles,
+    ticker: {
+      lastPrice: finiteOr(ticker.lastPrice, lastClose),
+      priceChange: finiteOr(ticker.priceChange, 0),
+      priceChangePercent: finiteOr(ticker.priceChangePercent, 0),
+      highPrice: finiteOr(ticker.highPrice, lastClose),
+      lowPrice: finiteOr(ticker.lowPrice, lastClose),
+      quoteVolume: finiteOr(ticker.quoteVolume, 0),
+    },
+    book: { bids, asks },
+    fetchedAt: Date.now(),
+    source: "binance",
+  };
+}
+
 export async function fetchBinanceMarket(symbol: string, interval: string, limit = 300): Promise<MarketPayload> {
   try {
-    const encodedSymbol = encodeURIComponent(symbol);
-    const encodedInterval = encodeURIComponent(interval);
-    const requestedLimit = Math.min(499, Math.max(100, Math.trunc(limit)));
-    const [klineRows, tickerRaw, depthRaw] = await Promise.all([
-      fetchJson(`/api/v3/klines?symbol=${encodedSymbol}&interval=${encodedInterval}&limit=${requestedLimit + 1}`),
-      fetchJson(`/api/v3/ticker/24hr?symbol=${encodedSymbol}`),
-      fetchJson(`/api/v3/depth?symbol=${encodedSymbol}&limit=20`),
-    ]);
-    const ticker = tickerRaw as Record<string, string>;
-    const depth = depthRaw as { bids?: unknown; asks?: unknown };
-    const candles = parseCandles(klineRows).slice(-requestedLimit);
-    if (candles.length < 50) throw new Error("Insufficient candle history");
-    const lastClose = candles.at(-1)?.close ?? 0;
-    const bids = parseBookSide(depth.bids);
-    const asks = parseBookSide(depth.asks);
-    return {
-      symbol,
-      interval,
-      candles,
-      ticker: {
-        lastPrice: finiteOr(ticker.lastPrice, lastClose),
-        priceChange: finiteOr(ticker.priceChange, 0),
-        priceChangePercent: finiteOr(ticker.priceChangePercent, 0),
-        highPrice: finiteOr(ticker.highPrice, lastClose),
-        lowPrice: finiteOr(ticker.lowPrice, lastClose),
-        quoteVolume: finiteOr(ticker.quoteVolume, 0),
-      },
-      book: { bids, asks },
-      fetchedAt: Date.now(),
-      source: "binance",
-    };
+    return await fetchBinanceMarketSnapshot(symbol, interval, limit);
   } catch {
     return makeDemoMarket(symbol, interval);
   }
 }
 
+export async function fetchBinanceCandleHistory(
+  symbol: string,
+  interval: string,
+  limit = 260,
+  closedOnly = true,
+) {
+  const requestedLimit = Math.min(499, Math.max(50, Math.trunc(limit)));
+  const extraCandle = closedOnly ? 1 : 0;
+  const rows = await fetchJson(
+    `/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${requestedLimit + extraCandle}`,
+  );
+  const candles = parseCandles(rows, Date.now(), closedOnly).slice(-requestedLimit);
+  if (candles.length < 50) throw new Error("Insufficient candle history");
+  return candles;
+}
+
 export async function fetchBinanceCandles(symbol: string, interval: string, limit = 260) {
   try {
-    const requestedLimit = Math.min(499, Math.max(50, Math.trunc(limit)));
-    const rows = await fetchJson(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${requestedLimit + 1}`);
-    const candles = parseCandles(rows).slice(-requestedLimit);
-    if (candles.length < 50) throw new Error("Insufficient candle history");
-    return { candles, source: "binance" as const };
+    return {
+      candles: await fetchBinanceCandleHistory(symbol, interval, limit, true),
+      source: "binance" as const,
+    };
   } catch {
     return { candles: makeDemoMarket(symbol, interval).candles, source: "demo" as const };
   }
@@ -250,11 +279,10 @@ export async function fetchBinanceCandles(symbol: string, interval: string, limi
 
 export async function fetchBinanceLiveCandles(symbol: string, interval: string, limit = 260) {
   try {
-    const requestedLimit = Math.min(499, Math.max(50, Math.trunc(limit)));
-    const rows = await fetchJson(`/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=${requestedLimit}`);
-    const candles = parseCandles(rows, Date.now(), false).slice(-requestedLimit);
-    if (candles.length < 50) throw new Error("Insufficient live candle history");
-    return { candles, source: "binance" as const };
+    return {
+      candles: await fetchBinanceCandleHistory(symbol, interval, limit, false),
+      source: "binance" as const,
+    };
   } catch {
     return { candles: makeDemoMarket(symbol, interval).candles, source: "demo" as const };
   }
