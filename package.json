@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vinext build && node scripts/validate-artifact.mjs",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/worker.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "validate:artifact": "node scripts/validate-artifact.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",

@@ -260,6 +260,184 @@ function quantile(values: number[], q: number) {
   return sorted[base + 1] === undefined ? sorted[base] : sorted[base] + rest * (sorted[base + 1] - sorted[base]);
 }
 
+export type MarketStructureResult = {
+  score: number;
+  state: string;
+  reliability: number;
+  interpretation: string;
+};
+
+type SwingPoint = {
+  index: number;
+  value: number;
+};
+
+export function evaluateMarketStructure(candles: Candle[], atrValue: number): MarketStructureResult {
+  const completedCandles = candles.at(-1)?.closeTime && candles.at(-1)!.closeTime > Date.now()
+    ? candles.slice(0, -1)
+    : candles;
+  const window = completedCandles.slice(-120);
+  const atrUnit = Math.max(atrValue, Number.EPSILON);
+
+  if (window.length < 12 || !Number.isFinite(atrValue) || atrValue <= 0) {
+    return {
+      score: 0,
+      state: "Yetersiz veri",
+      reliability: 35,
+      interpretation: "Piyasa yapısını teyit etmek için yeterli tamamlanmış mum bulunmuyor.",
+    };
+  }
+
+  const radius = 2;
+  const swingHighs: SwingPoint[] = [];
+  const swingLows: SwingPoint[] = [];
+
+  for (let index = radius; index < window.length - radius; index += 1) {
+    const candle = window[index];
+    const left = window.slice(index - radius, index);
+    const right = window.slice(index + 1, index + radius + 1);
+    if (
+      left.every((item) => candle.high > item.high) &&
+      right.every((item) => candle.high >= item.high)
+    ) {
+      swingHighs.push({ index, value: candle.high });
+    }
+    if (
+      left.every((item) => candle.low < item.low) &&
+      right.every((item) => candle.low <= item.low)
+    ) {
+      swingLows.push({ index, value: candle.low });
+    }
+  }
+
+  if (swingHighs.length >= 2 && swingLows.length >= 2) {
+    const previousHigh = swingHighs.at(-2)!;
+    const latestHigh = swingHighs.at(-1)!;
+    const previousLow = swingLows.at(-2)!;
+    const latestLow = swingLows.at(-1)!;
+    const highMove = (latestHigh.value - previousHigh.value) / atrUnit;
+    const lowMove = (latestLow.value - previousLow.value) / atrUnit;
+    const minimumMove = 0.18;
+    const sameDirection = Math.sign(highMove) === Math.sign(lowMove) && Math.sign(highMove) !== 0;
+    const confirmed = sameDirection && Math.min(Math.abs(highMove), Math.abs(lowMove)) >= minimumMove;
+
+    if (confirmed) {
+      const direction = Math.sign(highMove);
+      const weakestLeg = Math.min(Math.abs(highMove), Math.abs(lowMove));
+      const strongestLeg = Math.max(Math.abs(highMove), Math.abs(lowMove));
+      const balance = strongestLeg ? weakestLeg / strongestLeg : 0;
+      const newestSwing = Math.max(latestHigh.index, latestLow.index);
+      const freshness = clamp(1 - ((window.length - 1 - newestSwing) / 40), .4, 1);
+      const magnitude = clamp(10 + weakestLeg * 22, 14, 38);
+      const score = direction * magnitude * (.78 + balance * .22);
+      const reliability = clamp(62 + weakestLeg * 10 + balance * 10 + freshness * 8, 62, 88);
+      const state = direction > 0 ? "HH / HL" : "LH / LL";
+
+      return {
+        score: Math.round(score),
+        state,
+        reliability: Math.round(reliability),
+        interpretation: direction > 0
+          ? `Teyitli swing tepeleri ve dipleri yükseliyor; zayıf bacak ${weakestLeg.toFixed(2)} ATR ilerledi.`
+          : `Teyitli swing tepeleri ve dipleri düşüyor; zayıf bacak ${weakestLeg.toFixed(2)} ATR geriledi.`,
+      };
+    }
+
+    if (sameDirection) {
+      const direction = Math.sign(highMove);
+      const state = direction > 0 ? "Teyitsiz HH / HL" : "Teyitsiz LH / LL";
+      const weakestLeg = Math.min(Math.abs(highMove), Math.abs(lowMove));
+      return {
+        score: Math.round(direction * clamp((weakestLeg / minimumMove) * 10, 0, 10)),
+        state,
+        reliability: 52,
+        interpretation: `Swing yönü ${direction > 0 ? "yukarı" : "aşağı"} olsa da hareket ${minimumMove.toFixed(2)} ATR teyit eşiğinin altında.`,
+      };
+    }
+
+    const state = highMove > 0 && lowMove < 0
+      ? "Genişleyen yapı"
+      : highMove < 0 && lowMove > 0
+        ? "Sıkışan yapı"
+        : "Karışık yapı";
+    return {
+      score: 0,
+      state,
+      reliability: 68,
+      interpretation: "Son teyitli tepe ve dipler aynı yönü göstermiyor; yapı yön puanına eklenmedi.",
+    };
+  }
+
+  const recent = window.slice(-20);
+  const previous = window.slice(-40, -20);
+  if (recent.length === 20 && previous.length === 20) {
+    const highMove = (Math.max(...recent.map((item) => item.high)) - Math.max(...previous.map((item) => item.high))) / atrUnit;
+    const lowMove = (Math.min(...recent.map((item) => item.low)) - Math.min(...previous.map((item) => item.low))) / atrUnit;
+    const sameDirection = Math.sign(highMove) === Math.sign(lowMove) && Math.sign(highMove) !== 0;
+    const weakestLeg = Math.min(Math.abs(highMove), Math.abs(lowMove));
+    if (sameDirection && weakestLeg >= .35) {
+      const direction = Math.sign(highMove);
+      return {
+        score: Math.round(direction * clamp(6 + weakestLeg * 10, 8, 18)),
+        state: direction > 0 ? "Olası HH / HL" : "Olası LH / LL",
+        reliability: 48,
+        interpretation: "Yeterli teyitli swing bulunmadığı için yapı düşük ağırlıklı pencere karşılaştırmasıyla ölçüldü.",
+      };
+    }
+  }
+
+  return {
+    score: 0,
+    state: "Range / teyitsiz",
+    reliability: 50,
+    interpretation: "Tamamlanmış mumlarda anlamlı ve teyitli bir swing yönü oluşmadı.",
+  };
+}
+
+export type QuantCalibrationResult = {
+  score: number;
+  rawScore: number;
+  confirmingFamilies: string[];
+  opposingFamilies: string[];
+};
+
+export const scoringWeights: Record<string, number> = {
+  Trend: .30,
+  Momentum: .22,
+  Hacim: .20,
+  Yapı: .12,
+  "Mikro yapı": .10,
+  İstatistik: .06,
+};
+
+export function calibrateQuantScore(
+  familyScores: Record<string, number>,
+  weights: Record<string, number> = scoringWeights,
+): QuantCalibrationResult {
+  const rawScore = sum(Object.entries(weights).map(([family, weight]) => (familyScores[family] ?? 0) * weight));
+  const rawDirection = Math.sign(rawScore);
+  const activeFamilies = Object.entries(familyScores).filter(([, score]) => Math.abs(score) >= 12);
+  const confirmingFamilies = activeFamilies.filter(([, score]) => Math.sign(score) === rawDirection);
+  const opposingFamilies = activeFamilies.filter(([, score]) => Math.sign(score) === -rawDirection);
+  const coreFamilies = new Set(["Trend", "Momentum", "Hacim", "Yapı"]);
+  const confirmingCoreCount = confirmingFamilies.filter(([family]) => coreFamilies.has(family)).length;
+  const trendConfirms = confirmingFamilies.some(([family]) => family === "Trend");
+  let evidenceCap = 22;
+  if (confirmingFamilies.length >= 2 && confirmingCoreCount >= 1) evidenceCap = 42;
+  if (confirmingFamilies.length >= 3 && confirmingCoreCount >= 2) evidenceCap = 58;
+  if (confirmingFamilies.length >= 4 && confirmingCoreCount >= 3) evidenceCap = 72;
+  if (confirmingCoreCount >= 4) evidenceCap = 85;
+  if (!trendConfirms) evidenceCap = Math.min(evidenceCap, 48);
+  if (opposingFamilies.length >= 2) evidenceCap = Math.min(evidenceCap, 48);
+
+  return {
+    score: Math.round(rawDirection * Math.min(Math.abs(rawScore), evidenceCap)),
+    rawScore,
+    confirmingFamilies: confirmingFamilies.map(([family]) => family),
+    opposingFamilies: opposingFamilies.map(([family]) => family),
+  };
+}
+
 function indicator(
   id: string,
   name: string,
@@ -356,10 +534,7 @@ export function analyzeMarket(payload: MarketPayload): AnalysisResult {
   const shortLow = Math.min(...lows.slice(-20));
   const longHigh = Math.max(...highs.slice(-60));
   const longLow = Math.min(...lows.slice(-60));
-  const previousHigh = Math.max(...highs.slice(-40, -20));
-  const previousLow = Math.min(...lows.slice(-40, -20));
-  const structureScore = shortHigh > previousHigh && shortLow > previousLow ? 62 : shortHigh < previousHigh && shortLow < previousLow ? -62 : 0;
-  const structureState = structureScore > 0 ? "HH / HL" : structureScore < 0 ? "LH / LL" : "Range";
+  const marketStructure = evaluateMarketStructure(candles, atr);
   const priceVolumeCorrelation = autocorrelation(logReturns.slice(-30).map((value, index) => value * (volumes.slice(-30)[index] / (sma(volumes, 30) || 1))), 1);
   const skew = skewness(logReturns.slice(-50));
   const kurt = kurtosis(logReturns.slice(-50));
@@ -373,7 +548,9 @@ export function analyzeMarket(payload: MarketPayload): AnalysisResult {
   const macdScore = clamp((macdHistogram / (atr || 1)) * 180, -75, 75);
   indicators.push(indicator("macd", "MACD Histogram", "Trend", "trend_momentum", macdHistogram, compact(macdHistogram, 3), macdHistogram >= 0 ? "Pozitif" : "Negatif", macdScore, macdHistogram >= 0 ? "MACD histogram pozitif; trend momentumu destekleniyor." : "MACD histogram negatif; trend momentumu zayıflıyor."));
   const dmiDirection = adxValue.plusDI >= adxValue.minusDI ? 1 : -1;
-  const adxScore = dmiDirection * clamp(adxValue.adx * 1.8, 0, 72);
+  const dmiTotal = adxValue.plusDI + adxValue.minusDI;
+  const dmiSeparation = dmiTotal ? Math.abs(adxValue.plusDI - adxValue.minusDI) / dmiTotal : 0;
+  const adxScore = dmiDirection * clamp(adxValue.adx * 1.6 * clamp(dmiSeparation * 1.5, 0, 1), 0, 65);
   indicators.push(indicator("adx_dmi", "ADX / DMI", "Trend", "trend_strength", adxValue.adx, compact(adxValue.adx, 1), adxValue.adx >= 25 ? "Trend" : "Zayıf", adxScore, `${adxValue.plusDI >= adxValue.minusDI ? "+DI" : "−DI"} üstün; trend gücü ${adxValue.adx >= 25 ? "teyit ediliyor" : "henüz sınırlı"}.`));
   const slopeScore = clamp(((ema9 / (closes.at(-6) ?? ema9)) - 1) * 1500, -65, 65);
   indicators.push(indicator("ema_slope", "EMA9 Eğimi", "Trend", "trend_slope", slopeScore, pct(((ema9 / (closes.at(-6) ?? ema9)) - 1) * 100), slopeScore >= 0 ? "Yukarı" : "Aşağı", slopeScore, slopeScore >= 0 ? "Kısa ortalamanın eğimi yukarı dönük." : "Kısa ortalamanın eğimi aşağı dönük."));
@@ -388,9 +565,10 @@ export function analyzeMarket(payload: MarketPayload): AnalysisResult {
   indicators.push(indicator("williams_r", "Williams %R", "Momentum", "bounded_momentum", williams, compact(williams, 1), williams > -20 ? "Aşırı alım" : williams < -80 ? "Aşırı satım" : "Orta bölge", williamsScore, `Williams %R ${compact(williams, 1)}; fiyat son 14 mum aralığının ${williams > -50 ? "üst" : "alt"} yarısında.`));
   indicators.push(indicator("roc_10", "ROC (10)", "Momentum", "rate_of_change", roc, pct(roc), roc >= 0 ? "Pozitif" : "Negatif", clamp(roc * 20, -70, 70), `10 mumluk değişim ${pct(roc)}.`));
 
-  const directionalVolume = Math.sign(return1 || 1);
-  indicators.push(indicator("relative_volume", "Relative Volume (20)", "Hacim", "relative_volume", relativeVolume, `${compact(relativeVolume, 2)}×`, relativeVolume > 1.5 ? "Güçlü" : relativeVolume < 0.7 ? "Zayıf" : "Normal", directionalVolume * clamp((relativeVolume - 1) * 70, -60, 75), `Son mum hacmi 20 mum ortalamasının ${compact(relativeVolume, 2)} katı; hareket ${relativeVolume > 1.25 ? "hacimle teyit alıyor" : "güçlü hacim teyidi taşımıyor"}.`));
-  const obvScore = obvShort >= obvLong ? 48 : -48;
+  const directionalVolume = Math.sign(return1);
+  indicators.push(indicator("relative_volume", "Relative Volume (20)", "Hacim", "relative_volume", relativeVolume, `${compact(relativeVolume, 2)}×`, relativeVolume > 1.5 ? "Güçlü" : relativeVolume < 0.7 ? "Zayıf" : "Normal", directionalVolume * clamp((relativeVolume - .9) * 55, 0, 65), `Son mum hacmi 20 mum ortalamasının ${compact(relativeVolume, 2)} katı; hareket ${relativeVolume > 1.25 ? "hacimle teyit alıyor" : "güçlü hacim teyidi taşımıyor"}.`));
+  const obvNormalized = (obvShort - obvLong) / (sma(volumes, 20) || 1);
+  const obvScore = clamp(obvNormalized * 8, -55, 55);
   indicators.push(indicator("obv", "OBV Eğimi", "Hacim", "volume_flow", obvShort - obvLong, compact(obvShort - obvLong, 0), obvScore >= 0 ? "Birikim" : "Dağıtım", obvScore, obvScore >= 0 ? "OBV kısa ortalaması yükseliyor; birikim baskısı var." : "OBV kısa ortalaması geriliyor; dağıtım baskısı var."));
   indicators.push(indicator("cmf", "Chaikin Money Flow", "Hacim", "volume_flow", cmfValue, compact(cmfValue, 3), cmfValue >= 0 ? "Giriş" : "Çıkış", clamp(cmfValue * 260, -70, 70), `CMF ${cmfValue >= 0 ? "pozitif para akışına" : "negatif para akışına"} işaret ediyor.`));
   indicators.push(indicator("mfi", "Money Flow Index", "Hacim", "money_flow", mfiValue, compact(mfiValue, 1), mfiValue > 80 ? "Aşırı alım" : mfiValue < 20 ? "Aşırı satım" : mfiValue >= 50 ? "Pozitif" : "Negatif", clamp((mfiValue - 50) * 1.4, -70, 70), `Fiyat ve hacim birleşik para akışı ${mfiValue >= 50 ? "pozitif" : "negatif"}.`));
@@ -402,7 +580,7 @@ export function analyzeMarket(payload: MarketPayload): AnalysisResult {
   indicators.push(indicator("bb_width", "Bollinger Width", "Volatilite", "volatility_regime", bbWidth, `${compact(bbWidth, 2)}%`, bbWidth < atrPercent * 2.2 ? "Sıkışma" : "Açık", 0, `Bant genişliği ${compact(bbWidth, 2)}%; piyasa ${bbWidth < atrPercent * 2.2 ? "sıkışma" : "normal/genişleme"} rejiminde.`, { directional: false }));
   indicators.push(indicator("historical_vol", "Tarihsel Volatilite", "Volatilite", "realized_volatility", historicalVolatility, `${compact(historicalVolatility, 3)}%`, historicalVolatility > quantile(logReturns.map(Math.abs), .8) ? "Yüksek" : "Normal", 0, `Son 20 mum getiri sapması ${compact(historicalVolatility, 3)}%.`, { directional: false }));
 
-  indicators.push(indicator("market_structure", "Piyasa Yapısı", "Yapı", "swing_structure", structureScore, structureState, structureState, structureScore, structureScore > 0 ? "Son swing'ler daha yüksek tepe ve daha yüksek dip üretiyor." : structureScore < 0 ? "Son swing'ler daha düşük tepe ve daha düşük dip üretiyor." : "Swing yapısı net bir yön üretmiyor; range olasılığı yüksek."));
+  indicators.push(indicator("market_structure", "Piyasa Yapısı", "Yapı", "swing_structure", marketStructure.score, marketStructure.state, marketStructure.state, marketStructure.score, marketStructure.interpretation, { reliability: marketStructure.reliability }));
   const supportDistance = price ? ((price - shortLow) / price) * 100 : 0;
   const resistanceDistance = price ? ((shortHigh - price) / price) * 100 : 0;
   indicators.push(indicator("sr_proximity", "Destek / Direnç Mesafesi", "Yapı", "levels", resistanceDistance - supportDistance, `${compact(supportDistance, 2)}% / ${compact(resistanceDistance, 2)}%`, resistanceDistance < supportDistance ? "Dirence yakın" : "Desteğe yakın", 0, `En yakın destek ${compact(supportDistance, 2)}%, direnç ${compact(resistanceDistance, 2)}% mesafede.`, { directional: false }));
@@ -416,20 +594,37 @@ export function analyzeMarket(payload: MarketPayload): AnalysisResult {
   indicators.push(indicator("autocorr", "Autocorrelation (1)", "İstatistik", "serial_dependence", autoCorr, compact(autoCorr, 3), autoCorr > .15 ? "Trend eğilimi" : autoCorr < -.15 ? "Mean reversion" : "Zayıf", 0, `Lag-1 otokorelasyon ${compact(autoCorr, 3)}; seri bağımlılığı ${Math.abs(autoCorr) > .15 ? "ölçülebilir" : "zayıf"}.`, { directional: false }));
   indicators.push(indicator("price_volume_corr", "Fiyat–Hacim Etkileşimi", "İstatistik", "price_volume", priceVolumeCorrelation, compact(priceVolumeCorrelation, 3), priceVolumeCorrelation > .1 ? "Uyumlu" : priceVolumeCorrelation < -.1 ? "Ters" : "Zayıf", 0, `Fiyat değişimi ve normalize hacim etkileşimi ${Math.abs(priceVolumeCorrelation) > .1 ? "belirgin" : "zayıf"}.`, { directional: false }));
 
-  const scoringWeights: Record<string, number> = { Trend: .28, Momentum: .18, Hacim: .20, Yapı: .20, "Mikro yapı": .09, İstatistik: .05 };
   const familyScores: Record<string, number> = {};
   for (const family of Object.keys(scoringWeights)) {
     const familyIndicators = indicators.filter((item) => item.family === family && item.directional);
-    const groups = new Map<string, number[]>();
-    for (const item of familyIndicators) groups.set(item.correlationGroup, [...(groups.get(item.correlationGroup) ?? []), item.score]);
-    familyScores[family] = Math.round(mean([...groups.values()].map((scores) => mean(scores))));
+    const groups = new Map<string, IndicatorResult[]>();
+    for (const item of familyIndicators) groups.set(item.correlationGroup, [...(groups.get(item.correlationGroup) ?? []), item]);
+    familyScores[family] = Math.round(mean([...groups.values()].map((items) => mean(items.map((item) =>
+      item.score * clamp(item.reliability / 80, .55, 1),
+    )))));
   }
-  const quantScore = Math.round(sum(Object.entries(scoringWeights).map(([family, weight]) => (familyScores[family] ?? 0) * weight)));
+  const quantCalibration = calibrateQuantScore(familyScores);
+  const rawDirection = Math.sign(quantCalibration.rawScore);
+  const activeFamilies = Object.entries(familyScores).filter(([, score]) => Math.abs(score) >= 12);
+  const confirmingFamilies = activeFamilies.filter(([, score]) => Math.sign(score) === rawDirection);
+  const opposingFamilies = activeFamilies.filter(([, score]) => Math.sign(score) === -rawDirection);
+  const quantScore = quantCalibration.score;
   const directionalIndicators = indicators.filter((item) => item.directional && Math.abs(item.score) >= 10);
-  const matching = directionalIndicators.filter((item) => Math.sign(item.score) === Math.sign(quantScore)).length;
-  const agreement = directionalIndicators.length ? matching / directionalIndicators.length : .5;
+  const matchingFamilyStrength = sum(confirmingFamilies.map(([, score]) => Math.abs(score)));
+  const activeFamilyStrength = sum(activeFamilies.map(([, score]) => Math.abs(score)));
+  const agreement = activeFamilyStrength ? matchingFamilyStrength / activeFamilyStrength : .5;
   const dataQuality = candles.length >= 200 && payload.book.bids.length ? 96 : candles.length >= 100 ? 84 : 65;
-  const confidence = Math.round(clamp(42 + Math.abs(quantScore) * .32 + agreement * 31 - (spreadBps > 4 ? 10 : 0), 32, 94));
+  const confidence = Math.round(clamp(
+    34 +
+    Math.abs(quantScore) * .38 +
+    confirmingFamilies.length * 5 +
+    agreement * 12 -
+    opposingFamilies.length * 5 +
+    (dataQuality - 65) * .08 -
+    (spreadBps > 4 ? 10 : 0),
+    32,
+    92,
+  ));
   const tradeability = Math.round(clamp(91 - Math.max(0, spreadBps - 1) * 4 - Math.max(0, atrPercent - 2) * 7 - Math.max(0, 1 - relativeVolume) * 15, 20, 96));
   const riskScore = 100 - tradeability;
   const direction = quantScore >= 55 ? "STRONG LONG" : quantScore >= 20 ? "LONG" : quantScore <= -55 ? "STRONG SHORT" : quantScore <= -20 ? "SHORT" : "NEUTRAL";

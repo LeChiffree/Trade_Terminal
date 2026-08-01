@@ -750,7 +750,7 @@ async function acquireLease(db: D1Database, now: number) {
        SET lease_until = ?, last_heartbeat = ?, updated_at = ?
        WHERE id = 1 AND enabled = 1 AND lease_until < ?`,
     )
-    .bind(now + 15 * 60_000, now, now, now)
+    .bind(now + 5 * 60_000, now, now, now)
     .run();
   return Number(result.meta.changes ?? 0) > 0;
 }
