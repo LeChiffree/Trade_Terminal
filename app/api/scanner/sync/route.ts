@@ -130,6 +130,7 @@ export async function POST(request: Request) {
          WHERE id = 1`,
       )
       .bind(heartbeat, scans, alerts, lastError, now),
+    env.DB.prepare(`DELETE FROM scanner_scores`),
   ];
   let syncedLeaderCount = 0;
 

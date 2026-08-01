@@ -98,6 +98,19 @@ test("keeps the background scanner sync private", async () => {
   assert.equal(typeof body.error, "string");
 });
 
+test("replaces the production scanner leaderboard with each authenticated snapshot", async () => {
+  const route = await readFile(
+    new URL("../app/api/scanner/sync/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(route, /DELETE FROM scanner_scores/);
+  assert.ok(
+    route.indexOf("DELETE FROM scanner_scores") <
+      route.indexOf("INSERT INTO scanner_scores"),
+  );
+});
+
 test("returns 50 non-stablecoin USDT markets", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
