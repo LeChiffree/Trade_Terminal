@@ -10,6 +10,11 @@ import {
   type MarketContextPayload,
 } from "./market-context";
 import { sendGmailMessage } from "./smtp";
+import {
+  ensurePaperTradingSchema,
+  getPaperTradingStatus,
+  runPaperTradingCycle,
+} from "./paper-trading";
 
 export const SCANNER_INTERVALS = [
   { interval: "5m", cadenceSeconds: 15, phaseSeconds: 0, horizon: "çok kısa vadede" },
@@ -214,6 +219,7 @@ export async function ensureScannerSchema(db: D1Database) {
         .bind(item.interval, item.cadenceSeconds, item.phaseSeconds),
     ),
   ]);
+  await ensurePaperTradingSchema(db);
   scannerSchemaReady = true;
 }
 
@@ -804,6 +810,11 @@ export async function runScheduledScannerMinute(
           tickTime,
         );
       }
+      try {
+        await runPaperTradingCycle(db, Date.now());
+      } catch (error) {
+        console.error("Paper trade cycle failed", error);
+      }
       await db
         .prepare(
           `UPDATE scanner_config
@@ -815,6 +826,11 @@ export async function runScheduledScannerMinute(
     }
     return { skipped: false };
   } catch (error) {
+    try {
+      await runPaperTradingCycle(db, Date.now());
+    } catch (paperError) {
+      console.error("Paper trade fallback cycle failed", paperError);
+    }
     const message =
       error instanceof Error ? error.message.slice(0, 500) : "Tarama görevi başarısız.";
     await db
@@ -840,7 +856,7 @@ export async function runScheduledScannerMinute(
 
 export async function getScannerStatus(db: D1Database) {
   await ensureScannerSchema(db);
-  const [config, intervals, leaders, alerts] = await Promise.all([
+  const [config, intervals, leaders, alerts, paper] = await Promise.all([
     db.prepare(`SELECT * FROM scanner_config WHERE id = 1`).first(),
     db
       .prepare(
@@ -870,6 +886,7 @@ export async function getScannerStatus(db: D1Database) {
          LIMIT 20`,
       )
       .all(),
+    getPaperTradingStatus(db),
   ]);
   return {
     configured: true,
@@ -877,6 +894,7 @@ export async function getScannerStatus(db: D1Database) {
     intervals: intervals.results,
     leaders: leaders.results,
     alerts: alerts.results,
+    paper,
     generatedAt: Date.now(),
   };
 }

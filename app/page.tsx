@@ -20,8 +20,18 @@ import {
 } from "@/lib/binance-stream";
 import { blendDecisionScores, decisionContextScore } from "@/lib/decision";
 import type { MarketContextPayload } from "@/lib/market-context";
+import type {
+  PaperPositionRow,
+  PaperTradeStatus,
+} from "@/lib/paper-trading";
 
-type NavKey = "Analiz" | "Tarayıcı" | "Alarmlar" | "Geçmiş" | "Ayarlar";
+type NavKey =
+  | "Analiz"
+  | "Tarayıcı"
+  | "Paper Trade"
+  | "Alarmlar"
+  | "Geçmiş"
+  | "Ayarlar";
 
 type LlmReview = {
   direction_score: number;
@@ -111,11 +121,13 @@ type ScannerStatus = {
     sent_at: number;
     status: string;
   }>;
+  paper?: PaperTradeStatus;
 };
 
 const NAV: { label: NavKey; glyph: string }[] = [
   { label: "Analiz", glyph: "⌁" },
   { label: "Tarayıcı", glyph: "⌕" },
+  { label: "Paper Trade", glyph: "₺" },
   { label: "Alarmlar", glyph: "◉" },
   { label: "Geçmiş", glyph: "↻" },
   { label: "Ayarlar", glyph: "⚙" },
@@ -483,6 +495,257 @@ function ScannerView({ rows, onSelect, loading, status, now }: { rows: SymbolOpt
           <div className="scanner-row scanner-head"><span>#</span><span>Parite</span><span>Son fiyat</span><span>24s değişim</span><span>24s hacim</span><span /></div>
           {rows.slice(0, 50).map((row, index) => <div className="scanner-row" key={row.symbol}><span>{index + 1}</span><span><b>{row.baseAsset}/USDT</b><small>Binance Spot</small></span><span>{formatPrice(row.lastPrice)}</span><span className={row.priceChangePercent > 0 ? "positive" : row.priceChangePercent < 0 ? "negative" : "neutral"}>{row.lastPrice ? `${row.priceChangePercent > 0 ? "+" : ""}${priceFormatter.format(row.priceChangePercent)}%` : "—"}</span><span>{row.quoteVolume ? `$${compactFormatter.format(row.quoteVolume)}` : "—"}</span><span><button onClick={() => onSelect(row.symbol)}>Analiz et →</button></span></div>)}
         </div>
+      </section>
+    </>
+  );
+}
+
+const tryFormatter = new Intl.NumberFormat("tr-TR", {
+  style: "currency",
+  currency: "TRY",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+function tryValue(value: number) {
+  return tryFormatter.format(Number.isFinite(value) ? value : 0);
+}
+
+function paperDuration(openedAt: number, closedAt: number | null, now: number) {
+  const seconds = Math.max(
+    0,
+    Math.round(((closedAt ?? now) - openedAt) / 1_000),
+  );
+  if (seconds < 60) return `${seconds} sn`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)} dk`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)} sa`;
+  return `${Math.floor(seconds / 86_400)} gün`;
+}
+
+function paperCloseLabel(reason: string | null) {
+  if (reason === "score-normalized") return "Puan normale döndü";
+  if (reason === "direction-reversal") return "Yön tersine döndü";
+  if (reason === "liquidation") return "Tasfiye";
+  return "Açık";
+}
+
+function PaperPositionTable({
+  positions,
+  now,
+  history = false,
+}: {
+  positions: PaperPositionRow[];
+  now: number;
+  history?: boolean;
+}) {
+  return (
+    <div className="paper-table">
+      <div className="paper-row paper-head">
+        <span>Parite / Frame</span>
+        <span>Yön</span>
+        <span>Giriş / Mark</span>
+        <span>Puan</span>
+        <span>Marjin / Kaldıraç</span>
+        <span>Net P/L</span>
+        <span>{history ? "Kapanış" : "Süre / Liq."}</span>
+      </div>
+      {!positions.length && (
+        <div className="empty-inline">
+          {history
+            ? "Henüz kapanmış paper işlem yok."
+            : "Giriş koşullarını sağlayan ilk fırsat bekleniyor."}
+        </div>
+      )}
+      {positions.map((position) => {
+        const roe = position.margin
+          ? (position.net_pnl / position.margin) * 100
+          : 0;
+        return (
+          <div className="paper-row" key={position.id}>
+            <span>
+              <b>{position.base_asset}/USDT</b>
+              <small>{position.interval} · #{position.id}</small>
+            </span>
+            <span>
+              <i className={`paper-side ${position.direction}`}>
+                {position.direction.toUpperCase()}
+              </i>
+            </span>
+            <span>
+              <b>{formatPrice(position.entry_price)}</b>
+              <small>→ {formatPrice(position.mark_price)}</small>
+            </span>
+            <span>
+              <b className={scoreTone(position.current_score)}>
+                {signedScore(position.current_score)}
+              </b>
+              <small>Giriş {signedScore(position.entry_score)}</small>
+            </span>
+            <span>
+              <b>{tryValue(position.margin)}</b>
+              <small>{position.leverage}x · {tryValue(position.notional)}</small>
+            </span>
+            <span>
+              <b className={position.net_pnl >= 0 ? "positive" : "negative"}>
+                {tryValue(position.net_pnl)}
+              </b>
+              <small className={roe >= 0 ? "positive" : "negative"}>
+                ROE {roe >= 0 ? "+" : ""}{priceFormatter.format(roe)}%
+              </small>
+            </span>
+            <span>
+              <b>
+                {history
+                  ? paperCloseLabel(position.close_reason)
+                  : paperDuration(position.opened_at, null, now)}
+              </b>
+              <small>
+                {history
+                  ? paperDuration(position.opened_at, position.closed_at, now)
+                  : `Liq. ${formatPrice(position.liquidation_price)}`}
+              </small>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PaperTradeView({
+  status,
+  now,
+}: {
+  status: ScannerStatus | null;
+  now: number;
+}) {
+  const paper = status?.paper;
+  const account = paper?.account;
+  const metrics = paper?.metrics;
+  const cycleAge = account?.last_cycle_at
+    ? Math.max(0, Math.round((now - account.last_cycle_at) / 1_000))
+    : null;
+  const live = Boolean(
+    status?.configured &&
+      status.config?.enabled &&
+      cycleAge !== null &&
+      cycleAge < 180,
+  );
+  return (
+    <>
+      <section className="panel module-panel paper-hero">
+        <div>
+          <span className="eyebrow">OTOMATİK 5X PAPER PORTFÖY</span>
+          <h2>En güçlü 5 fırsat, gerçek Binance Futures maliyet modeli</h2>
+          <p>
+            Stablecoin hariç 50 paritenin tüm zaman dilimleri karşılaştırılır.
+            Aynı coinin en güçlü frame’i seçilir; puan nötrleşince işlem kapanır.
+          </p>
+        </div>
+        <div className="paper-equity">
+          <small>ANLIK PORTFÖY DEĞERİ</small>
+          <strong className={(metrics?.totalNetPnl ?? 0) >= 0 ? "positive" : "negative"}>
+            {tryValue(metrics?.equity ?? 100_000)}
+          </strong>
+          <span className={live ? "integration-ok" : "integration-warn"}>
+            {live ? `Canlı · ${cycleAge} sn` : "Motor bekleniyor"}
+          </span>
+        </div>
+      </section>
+
+      <section className="paper-kpi-grid">
+        <article className="panel">
+          <small>Ana para</small>
+          <strong>{tryValue(account?.initial_balance ?? 100_000)}</strong>
+          <span>Sabit başlangıç kasası</span>
+        </article>
+        <article className="panel">
+          <small>Kullanılabilir nakit</small>
+          <strong>{tryValue(metrics?.availableCash ?? 100_000)}</strong>
+          <span>Marjin ve giriş maliyetleri sonrası</span>
+        </article>
+        <article className="panel">
+          <small>Açık işlem</small>
+          <strong>{metrics?.openPositions ?? 0} / {account?.max_positions ?? 5}</strong>
+          <span>{tryValue(metrics?.reservedMargin ?? 0)} bağlı marjin</span>
+        </article>
+        <article className="panel">
+          <small>Total net P/L</small>
+          <strong className={(metrics?.totalNetPnl ?? 0) >= 0 ? "positive" : "negative"}>
+            {tryValue(metrics?.totalNetPnl ?? 0)}
+          </strong>
+          <span>Realized + unrealized, tüm maliyetler dahil</span>
+        </article>
+        <article className="panel">
+          <small>Realized P/L</small>
+          <strong className={(metrics?.realizedNetPnl ?? 0) >= 0 ? "positive" : "negative"}>
+            {tryValue(metrics?.realizedNetPnl ?? 0)}
+          </strong>
+          <span>{metrics?.closedTrades ?? 0} kapanmış işlem</span>
+        </article>
+        <article className="panel">
+          <small>Unrealized P/L</small>
+          <strong className={(metrics?.unrealizedNetPnl ?? 0) >= 0 ? "positive" : "negative"}>
+            {tryValue(metrics?.unrealizedNetPnl ?? 0)}
+          </strong>
+          <span>Açık işlemlerin net mark-to-market değeri</span>
+        </article>
+        <article className="panel">
+          <small>Komisyon + kayma</small>
+          <strong>{tryValue((metrics?.totalFees ?? 0) + (metrics?.totalSlippage ?? 0))}</strong>
+          <span>{tryValue(metrics?.totalFees ?? 0)} fee · {tryValue(metrics?.totalSlippage ?? 0)} slip</span>
+        </article>
+        <article className="panel">
+          <small>Funding / başarı</small>
+          <strong className={(metrics?.fundingPnl ?? 0) >= 0 ? "positive" : "negative"}>
+            {tryValue(metrics?.fundingPnl ?? 0)}
+          </strong>
+          <span>Kazanma oranı %{priceFormatter.format(metrics?.winRate ?? 0)}</span>
+        </article>
+      </section>
+
+      <section className="panel module-panel">
+        <div className="panel-head">
+          <div>
+            <span className="eyebrow">AÇIK POZİSYONLAR</span>
+            <h2>Binance mark fiyatıyla canlı net P/L</h2>
+          </div>
+          <span className="data-note">
+            İşlem başına {tryValue(account?.margin_per_trade ?? 1_000)} · {account?.leverage ?? 5}x
+          </span>
+        </div>
+        <PaperPositionTable
+          positions={paper?.openPositions ?? []}
+          now={now}
+        />
+      </section>
+
+      <section className="panel module-panel">
+        <div className="panel-head">
+          <div>
+            <span className="eyebrow">PAPER TRADE JOURNAL</span>
+            <h2>Son kapanan işlemler</h2>
+          </div>
+          <span className="data-note">Net sonuç · tüm maliyetler dahil</span>
+        </div>
+        <PaperPositionTable
+          positions={paper?.history ?? []}
+          now={now}
+          history
+        />
+      </section>
+
+      <section className="paper-method">
+        <span>MODEL</span>
+        <p>
+          Giriş: en yüksek mutlak final puanlı, güveni en az %
+          {account?.minimum_confidence ?? 70} olan 5 benzersiz parite ve minimum
+          ±{account?.entry_score ?? 30} puan. Çıkış: puan ±
+          {account?.exit_score ?? 15} nötr bölgesine dönerse, yön tersine
+          dönerse veya izole tasfiye seviyesine ulaşırsa. Hesap; çift taraflı
+          taker komisyonunu, çift taraflı %{((account?.slippage_rate ?? .0002) * 100).toFixed(2)}
+          {" "}kaymayı ve Binance’ın canlı funding oranını net P/L’ye dahil eder.
+        </p>
       </section>
     </>
   );
@@ -934,7 +1197,7 @@ export default function Home() {
           <div className="top-actions"><div className={`freshness ${liveDataReady ? "" : "offline"}`}><i /> {loading ? "YÜKLENİYOR" : liveDataReady ? "WS CANLI" : "AKIŞ BEKLENİYOR"} <span>• {freshness} sn önce</span></div><button className="icon-button" aria-label="Bildirimler">◌<em>{alerts.filter((alert) => alert.active).length}</em></button><button className="primary-button" onClick={() => setActiveNav("Alarmlar")}>＋ Yeni alarm</button></div>
         </header>
 
-        <div className="symbol-row">
+        {activeNav !== "Paper Trade" && <><div className="symbol-row">
           <div className="symbol-picker"><span className="coin-icon">{symbol.startsWith("BTC") ? "₿" : symbol.slice(0, 1)}</span><div><select value={symbol} onChange={(event) => changeSymbol(event.target.value)}>{symbolOptions.map((item) => <option key={item.symbol} value={item.symbol}>{item.baseAsset}/USDT</option>)}</select><small>{symbolsLoading ? "İlk 50 coin yükleniyor…" : "Binance · Hacme göre ilk 50"}</small></div></div>
           <div className="quote"><strong>{formatPrice(market.ticker.lastPrice)}</strong><span className={market.ticker.priceChangePercent >= 0 ? "" : "negative"}>{market.ticker.priceChangePercent >= 0 ? "+" : ""}{priceFormatter.format(market.ticker.priceChange)} · {market.ticker.priceChangePercent >= 0 ? "+" : ""}{priceFormatter.format(market.ticker.priceChangePercent)}%</span></div>
           <div className="quote-stat"><small>24s Hacim</small><b>${compactFormatter.format(market.ticker.quoteVolume)}</b></div>
@@ -942,10 +1205,11 @@ export default function Home() {
           <button className={`star ${starred ? "on" : ""}`} onClick={() => setStarred(!starred)} aria-label="Favoriye ekle">★</button>
         </div>
 
-        <div className="timeframe-row"><div className="segmented" aria-label="Zaman dilimi">{TIMEFRAMES.map((item) => <button key={item} className={timeframe === item ? "active" : ""} onClick={() => changeTimeframe(item)}>{item}</button>)}</div><div className="candle-state"><span /> Canlı mum · kapanmış swing yapısı <b>{timeframe}</b> · Kalite %{liveDataReady ? analysis.dataQuality : 0}</div></div>
+        <div className="timeframe-row"><div className="segmented" aria-label="Zaman dilimi">{TIMEFRAMES.map((item) => <button key={item} className={timeframe === item ? "active" : ""} onClick={() => changeTimeframe(item)}>{item}</button>)}</div><div className="candle-state"><span /> Canlı mum · kapanmış swing yapısı <b>{timeframe}</b> · Kalite %{liveDataReady ? analysis.dataQuality : 0}</div></div></>}
 
         {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={displayedLlm} llmLoading={llmLoading} loading={loading} context={marketContext} contextLoading={contextLoading} liveDataReady={liveDataReady} streamStatus={streamStatus} runLlmReview={runLlmReview} />}
         {activeNav === "Tarayıcı" && <ScannerView rows={symbolOptions} loading={symbolsLoading} onSelect={selectScannerSymbol} status={scannerStatus} now={freshnessNow} />}
+        {activeNav === "Paper Trade" && <PaperTradeView status={scannerStatus} now={freshnessNow} />}
         {activeNav === "Alarmlar" && <AlertsView key={`${market.symbol}-${market.interval}`} alerts={alerts} setAlerts={persistAlerts} market={market} gmailConfigured={gmailStatus.configured} />}
         {activeNav === "Geçmiş" && <HistoryView logs={logs} />}
         {activeNav === "Ayarlar" && <SettingsView llmStatus={llmStatus} gmailStatus={gmailStatus} onTestGmail={testGmail} gmailMessage={gmailMessage} />}

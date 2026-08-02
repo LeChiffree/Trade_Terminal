@@ -33,6 +33,7 @@ test("renders the QuantScope application shell and production metadata", async (
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.match(html, /<html[^>]*lang=["']tr["']/i);
   assert.match(html, /QuantScope Trade Terminal/);
+  assert.match(html, /Paper Trade/);
   assert.doesNotMatch(html, /codex-preview/i);
 });
 
@@ -50,6 +51,12 @@ test("packages the persistent scheduled scanner", async () => {
   assert.equal(wrangler.limits.subrequests, 1000);
   assert.equal(hosting.d1, "DB");
   assert.equal(wrangler.d1_databases[0].binding, "DB");
+  const paperMigration = await readFile(
+    new URL("../dist/.openai/drizzle/0002_paper_trading.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(paperMigration, /CREATE TABLE `paper_account`/);
+  assert.match(paperMigration, /CREATE TABLE `paper_positions`/);
 });
 
 test("rejects malformed Gemini review requests", async () => {
@@ -109,6 +116,7 @@ test("replaces the production scanner leaderboard with each authenticated snapsh
     route.indexOf("DELETE FROM scanner_scores") <
       route.indexOf("INSERT INTO scanner_scores"),
   );
+  assert.match(route, /DELETE FROM paper_positions/);
 });
 
 test("returns 50 non-stablecoin USDT markets", async () => {

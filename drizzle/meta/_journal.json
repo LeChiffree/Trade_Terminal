@@ -15,6 +15,13 @@
       "when": 1785526800828,
       "tag": "0001_round_eddie_brock",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785693556712,
+      "tag": "0002_paper_trading",
+      "breakpoints": true
     }
   ]
 }

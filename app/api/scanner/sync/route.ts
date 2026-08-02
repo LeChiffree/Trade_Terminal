@@ -28,6 +28,38 @@ type SyncLeader = {
   last_scanned_at?: unknown;
 };
 
+type SyncPaperPosition = {
+  id?: unknown;
+  symbol?: unknown;
+  base_asset?: unknown;
+  interval?: unknown;
+  direction?: unknown;
+  status?: unknown;
+  entry_score?: unknown;
+  current_score?: unknown;
+  confidence?: unknown;
+  entry_price?: unknown;
+  mark_price?: unknown;
+  quantity?: unknown;
+  margin?: unknown;
+  leverage?: unknown;
+  notional?: unknown;
+  funding_rate?: unknown;
+  next_funding_at?: unknown;
+  funding_pnl?: unknown;
+  entry_fee?: unknown;
+  exit_fee?: unknown;
+  entry_slippage?: unknown;
+  exit_slippage?: unknown;
+  gross_pnl?: unknown;
+  net_pnl?: unknown;
+  liquidation_price?: unknown;
+  opened_at?: unknown;
+  closed_at?: unknown;
+  close_reason?: unknown;
+  updated_at?: unknown;
+};
+
 type SyncPayload = {
   config?: {
     last_heartbeat?: unknown;
@@ -37,10 +69,21 @@ type SyncPayload = {
   };
   intervals?: SyncInterval[];
   leaders?: SyncLeader[];
+  paper?: {
+    account?: Record<string, unknown> | null;
+    openPositions?: SyncPaperPosition[];
+    history?: SyncPaperPosition[];
+  };
 };
 
 const VALID_INTERVALS = new Set(["5m", "15m", "1h", "4h", "1d", "1w"]);
 const VALID_DIRECTIONS = new Set(["long", "short", "neutral", "unavailable"]);
+const VALID_PAPER_STATUSES = new Set(["open", "closed"]);
+const VALID_CLOSE_REASONS = new Set([
+  "score-normalized",
+  "direction-reversal",
+  "liquidation",
+]);
 
 function finiteInteger(value: unknown, fallback = 0) {
   const number = Number(value);
@@ -133,6 +176,7 @@ export async function POST(request: Request) {
     env.DB.prepare(`DELETE FROM scanner_scores`),
   ];
   let syncedLeaderCount = 0;
+  let syncedPositionCount = 0;
 
   for (const item of (payload.intervals ?? []).slice(0, 6)) {
     const interval = String(item.interval ?? "");
@@ -210,9 +254,132 @@ export async function POST(request: Request) {
     syncedLeaderCount += 1;
   }
 
+  const paperAccount = payload.paper?.account;
+  if (paperAccount && typeof paperAccount === "object") {
+    statements.push(
+      env.DB
+        .prepare(
+          `UPDATE paper_account
+           SET initial_balance = ?, cash_balance = ?, margin_per_trade = ?,
+               leverage = ?, max_positions = ?, entry_score = ?,
+               exit_score = ?, minimum_confidence = ?, taker_fee_rate = ?,
+               slippage_rate = ?, maintenance_margin_rate = ?,
+               realized_net_pnl = ?, total_fees = ?, total_slippage = ?,
+               total_funding = ?, trades_closed = ?, wins = ?, losses = ?,
+               last_cycle_at = ?, updated_at = ?
+           WHERE id = 1`,
+        )
+        .bind(
+          boundedNumber(paperAccount.initial_balance, 0, 10_000_000),
+          boundedNumber(paperAccount.cash_balance, 0, 10_000_000),
+          boundedNumber(paperAccount.margin_per_trade, 1, 1_000_000),
+          Math.round(boundedNumber(paperAccount.leverage, 1, 125)),
+          Math.round(boundedNumber(paperAccount.max_positions, 1, 20)),
+          Math.round(boundedNumber(paperAccount.entry_score, 1, 100)),
+          Math.round(boundedNumber(paperAccount.exit_score, 0, 100)),
+          Math.round(boundedNumber(paperAccount.minimum_confidence, 0, 100)),
+          boundedNumber(paperAccount.taker_fee_rate, 0, 0.02),
+          boundedNumber(paperAccount.slippage_rate, 0, 0.02),
+          boundedNumber(paperAccount.maintenance_margin_rate, 0, 0.2),
+          boundedNumber(paperAccount.realized_net_pnl, -10_000_000, 10_000_000),
+          boundedNumber(paperAccount.total_fees, 0, 10_000_000),
+          boundedNumber(paperAccount.total_slippage, 0, 10_000_000),
+          boundedNumber(paperAccount.total_funding, -10_000_000, 10_000_000),
+          finiteInteger(paperAccount.trades_closed),
+          finiteInteger(paperAccount.wins),
+          finiteInteger(paperAccount.losses),
+          finiteInteger(paperAccount.last_cycle_at),
+          now,
+        ),
+      env.DB.prepare(`DELETE FROM paper_positions`),
+    );
+
+    const paperPositions = [
+      ...(payload.paper?.openPositions ?? []).slice(0, 5),
+      ...(payload.paper?.history ?? []).slice(0, 30),
+    ];
+    const seenIds = new Set<number>();
+    for (const item of paperPositions) {
+      const id = finiteInteger(item.id);
+      const symbol = String(item.symbol ?? "").toUpperCase();
+      const baseAsset = String(item.base_asset ?? "").toUpperCase();
+      const interval = String(item.interval ?? "");
+      const direction = String(item.direction ?? "");
+      const status = String(item.status ?? "");
+      const closeReason = item.close_reason
+        ? String(item.close_reason)
+        : null;
+      if (
+        !id ||
+        seenIds.has(id) ||
+        !/^[A-Z0-9]{2,16}USDT$/.test(symbol) ||
+        !/^[A-Z0-9]{2,16}$/.test(baseAsset) ||
+        !VALID_INTERVALS.has(interval) ||
+        !["long", "short"].includes(direction) ||
+        !VALID_PAPER_STATUSES.has(status) ||
+        (closeReason !== null && !VALID_CLOSE_REASONS.has(closeReason))
+      ) continue;
+      seenIds.add(id);
+      statements.push(
+        env.DB
+          .prepare(
+            `INSERT INTO paper_positions
+             (id, symbol, base_asset, interval, direction, status, entry_score,
+              current_score, confidence, entry_price, mark_price, quantity,
+              margin, leverage, notional, funding_rate, next_funding_at,
+              funding_pnl, entry_fee, exit_fee, entry_slippage, exit_slippage,
+              gross_pnl, net_pnl, liquidation_price, opened_at, closed_at,
+              close_reason, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            id,
+            symbol,
+            baseAsset,
+            interval,
+            direction,
+            status,
+            Math.round(boundedNumber(item.entry_score, -100, 100)),
+            Math.round(boundedNumber(item.current_score, -100, 100)),
+            Math.round(boundedNumber(item.confidence, 0, 100)),
+            boundedNumber(item.entry_price, 0, Number.MAX_SAFE_INTEGER),
+            boundedNumber(item.mark_price, 0, Number.MAX_SAFE_INTEGER),
+            boundedNumber(item.quantity, 0, Number.MAX_SAFE_INTEGER),
+            boundedNumber(item.margin, 0, 1_000_000),
+            Math.round(boundedNumber(item.leverage, 1, 125)),
+            boundedNumber(item.notional, 0, 10_000_000),
+            boundedNumber(item.funding_rate, -1, 1),
+            finiteInteger(item.next_funding_at),
+            boundedNumber(item.funding_pnl, -10_000_000, 10_000_000),
+            boundedNumber(item.entry_fee, 0, 1_000_000),
+            boundedNumber(item.exit_fee, 0, 1_000_000),
+            boundedNumber(item.entry_slippage, 0, 1_000_000),
+            boundedNumber(item.exit_slippage, 0, 1_000_000),
+            boundedNumber(item.gross_pnl, -10_000_000, 10_000_000),
+            boundedNumber(item.net_pnl, -10_000_000, 10_000_000),
+            boundedNumber(item.liquidation_price, 0, Number.MAX_SAFE_INTEGER),
+            finiteInteger(item.opened_at),
+            item.closed_at === null || item.closed_at === undefined
+              ? null
+              : finiteInteger(item.closed_at),
+            closeReason,
+            finiteInteger(item.updated_at, now),
+          ),
+      );
+      syncedPositionCount += 1;
+    }
+  }
+
   await env.DB.batch(statements);
   return Response.json(
-    { ok: true, heartbeat, scans, leaders: syncedLeaderCount },
+    {
+      ok: true,
+      heartbeat,
+      scans,
+      leaders: syncedLeaderCount,
+      paperPositions: syncedPositionCount,
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
