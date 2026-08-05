@@ -32,7 +32,7 @@ export type MarketPayload = {
   ticker: MarketTicker;
   book: MarketBook;
   fetchedAt: number;
-  source: "binance" | "demo";
+  source: "binance" | "bist" | "demo";
 };
 
 export type IndicatorFamily =

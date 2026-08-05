@@ -24,11 +24,13 @@ import type {
   PaperPositionRow,
   PaperTradeStatus,
 } from "@/lib/paper-trading";
+import BistTerminal from "./bist-terminal";
 
 type NavKey =
   | "Analiz"
   | "Tarayıcı"
   | "Paper Trade"
+  | "BIST 80"
   | "Alarmlar"
   | "Geçmiş"
   | "Ayarlar";
@@ -128,6 +130,7 @@ const NAV: { label: NavKey; glyph: string }[] = [
   { label: "Analiz", glyph: "⌁" },
   { label: "Tarayıcı", glyph: "⌕" },
   { label: "Paper Trade", glyph: "₺" },
+  { label: "BIST 80", glyph: "B" },
   { label: "Alarmlar", glyph: "◉" },
   { label: "Geçmiş", glyph: "↻" },
   { label: "Ayarlar", glyph: "⚙" },
@@ -1194,10 +1197,10 @@ export default function Home() {
       <section className="workspace">
         <header className="topbar">
           <div><small>CANLI TEKNİK KARAR TERMİNALİ</small><h1>{activeNav}</h1></div>
-          <div className="top-actions"><div className={`freshness ${liveDataReady ? "" : "offline"}`}><i /> {loading ? "YÜKLENİYOR" : liveDataReady ? "WS CANLI" : "AKIŞ BEKLENİYOR"} <span>• {freshness} sn önce</span></div><button className="icon-button" aria-label="Bildirimler">◌<em>{alerts.filter((alert) => alert.active).length}</em></button><button className="primary-button" onClick={() => setActiveNav("Alarmlar")}>＋ Yeni alarm</button></div>
+          <div className="top-actions"><div className={`freshness ${activeNav === "BIST 80" ? "bist-mode" : liveDataReady ? "" : "offline"}`}><i /> {activeNav === "BIST 80" ? "BIST GECİKMELİ" : loading ? "YÜKLENİYOR" : liveDataReady ? "WS CANLI" : "AKIŞ BEKLENİYOR"} <span>{activeNav === "BIST 80" ? "• ≥15 dk" : `• ${freshness} sn önce`}</span></div><button className="icon-button" aria-label="Bildirimler">◌<em>{alerts.filter((alert) => alert.active).length}</em></button>{activeNav !== "BIST 80" && activeNav !== "Paper Trade" && <button className="primary-button" onClick={() => setActiveNav("Alarmlar")}>＋ Yeni alarm</button>}</div>
         </header>
 
-        {activeNav !== "Paper Trade" && <><div className="symbol-row">
+        {activeNav !== "Paper Trade" && activeNav !== "BIST 80" && <><div className="symbol-row">
           <div className="symbol-picker"><span className="coin-icon">{symbol.startsWith("BTC") ? "₿" : symbol.slice(0, 1)}</span><div><select value={symbol} onChange={(event) => changeSymbol(event.target.value)}>{symbolOptions.map((item) => <option key={item.symbol} value={item.symbol}>{item.baseAsset}/USDT</option>)}</select><small>{symbolsLoading ? "İlk 50 coin yükleniyor…" : "Binance · Hacme göre ilk 50"}</small></div></div>
           <div className="quote"><strong>{formatPrice(market.ticker.lastPrice)}</strong><span className={market.ticker.priceChangePercent >= 0 ? "" : "negative"}>{market.ticker.priceChangePercent >= 0 ? "+" : ""}{priceFormatter.format(market.ticker.priceChange)} · {market.ticker.priceChangePercent >= 0 ? "+" : ""}{priceFormatter.format(market.ticker.priceChangePercent)}%</span></div>
           <div className="quote-stat"><small>24s Hacim</small><b>${compactFormatter.format(market.ticker.quoteVolume)}</b></div>
@@ -1210,6 +1213,7 @@ export default function Home() {
         {activeNav === "Analiz" && <AnalysisView market={market} analysis={analysis} multi={multi} llm={displayedLlm} llmLoading={llmLoading} loading={loading} context={marketContext} contextLoading={contextLoading} liveDataReady={liveDataReady} streamStatus={streamStatus} runLlmReview={runLlmReview} />}
         {activeNav === "Tarayıcı" && <ScannerView rows={symbolOptions} loading={symbolsLoading} onSelect={selectScannerSymbol} status={scannerStatus} now={freshnessNow} />}
         {activeNav === "Paper Trade" && <PaperTradeView status={scannerStatus} now={freshnessNow} />}
+        {activeNav === "BIST 80" && <BistTerminal />}
         {activeNav === "Alarmlar" && <AlertsView key={`${market.symbol}-${market.interval}`} alerts={alerts} setAlerts={persistAlerts} market={market} gmailConfigured={gmailStatus.configured} />}
         {activeNav === "Geçmiş" && <HistoryView logs={logs} />}
         {activeNav === "Ayarlar" && <SettingsView llmStatus={llmStatus} gmailStatus={gmailStatus} onTestGmail={testGmail} gmailMessage={gmailMessage} />}
