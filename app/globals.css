@@ -248,6 +248,11 @@ input, select { font: inherit; color-scheme: dark; }
 .paper-method { margin-top: 10px; padding: 12px 14px; display: grid; grid-template-columns: 55px 1fr; gap: 12px; border: 1px solid var(--line-soft); border-radius: 9px; background: #091015; }
 .paper-method span { color: var(--mint); font-size: 7px; font-weight: 900; letter-spacing: .12em; }
 .paper-method p { margin: 0; color: #61737a; font-size: 7px; line-height: 1.65; }
+.bist-paper-hero { background: radial-gradient(circle at 84% 40%, rgba(246, 185, 74, .12), transparent 29%), linear-gradient(145deg, rgba(28, 26, 19, .98), rgba(9, 15, 20, .98)); }
+.bist-paper-hero .eyebrow, .bist-paper-method > span { color: var(--amber); }
+.bist-paper-table .paper-row { grid-template-columns: 1.25fr .5fr 1fr .7fr 1.05fr 1fr 1.15fr; }
+.bist-paper-table .paper-row > span:first-child small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bist-paper-method { border-color: #3c321d; background: linear-gradient(135deg, #11130f, #091015); }
 
 /* BIST delayed-data terminal */
 .freshness.bist-mode { color: var(--amber); border-color: #55441f; background: #211b0f; }

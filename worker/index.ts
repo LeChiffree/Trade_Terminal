@@ -2,6 +2,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { runScheduledScannerMinute } from "../lib/background-scanner";
+import { runBistPaperTradingCycle } from "../lib/bist-paper-trading";
 
 interface Env {
   ASSETS: Fetcher;
@@ -49,15 +50,22 @@ const worker = {
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const scheduledMinute = Math.floor(Date.now() / 60_000) * 60_000;
-    try {
-      await runScheduledScannerMinute(
+    const [scannerResult, bistPaperResult] = await Promise.allSettled([
+      runScheduledScannerMinute(
         env,
         scheduledMinute,
         async (delayMs) => await scheduler.wait(delayMs),
-      );
-    } catch (error) {
-      console.error("Scheduled scanner failed", error);
-      throw error;
+      ),
+      env.DB
+        ? runBistPaperTradingCycle(env.DB, Date.now())
+        : Promise.resolve({ skipped: true, reason: "database-not-configured" }),
+    ]);
+    if (bistPaperResult.status === "rejected") {
+      console.error("Scheduled BIST paper trade failed", bistPaperResult.reason);
+    }
+    if (scannerResult.status === "rejected") {
+      console.error("Scheduled scanner failed", scannerResult.reason);
+      throw scannerResult.reason;
     }
   },
 };

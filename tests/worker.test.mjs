@@ -57,6 +57,28 @@ test("packages the persistent scheduled scanner", async () => {
   );
   assert.match(paperMigration, /CREATE TABLE `paper_account`/);
   assert.match(paperMigration, /CREATE TABLE `paper_positions`/);
+  const bistPaperMigration = await readFile(
+    new URL("../dist/.openai/drizzle/0003_funny_pete_wisdom.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(bistPaperMigration, /CREATE TABLE `bist_paper_account`/);
+  assert.match(bistPaperMigration, /CREATE TABLE `bist_paper_positions`/);
+  assert.match(bistPaperMigration, /PRAGMA optimize/);
+});
+
+test("exposes the independent BIST paper portfolio route", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/bist/paper"),
+    env,
+    ctx,
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.configured, false);
+  assert.equal(body.delayedMinutes, 15);
+  assert.deepEqual(body.openPositions, []);
 });
 
 test("rejects malformed Gemini review requests", async () => {
