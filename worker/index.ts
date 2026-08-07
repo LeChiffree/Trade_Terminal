@@ -2,7 +2,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { runScheduledScannerMinute } from "../lib/background-scanner";
-import { runBistPaperTradingCycle } from "../lib/bist-paper-trading";
+import { runBistPaperTradingCycleIfDue } from "../lib/bist-paper-trading";
 
 interface Env {
   ASSETS: Fetcher;
@@ -57,7 +57,7 @@ const worker = {
         async (delayMs) => await scheduler.wait(delayMs),
       ),
       env.DB
-        ? runBistPaperTradingCycle(env.DB, Date.now())
+        ? runBistPaperTradingCycleIfDue(env.DB, Date.now())
         : Promise.resolve({ skipped: true, reason: "database-not-configured" }),
     ]);
     if (bistPaperResult.status === "rejected") {

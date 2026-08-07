@@ -2,7 +2,7 @@ export const PAPER_DEFAULTS = {
   initialBalance: 100_000,
   marginPerTrade: 1_000,
   leverage: 5,
-  maxPositions: 5,
+  maxPositions: 10,
   entryScore: 30,
   exitScore: 15,
   minimumConfidence: 70,
@@ -135,7 +135,7 @@ const PAPER_CREATE_STATEMENTS = [
     cash_balance REAL NOT NULL DEFAULT 100000,
     margin_per_trade REAL NOT NULL DEFAULT 1000,
     leverage INTEGER NOT NULL DEFAULT 5,
-    max_positions INTEGER NOT NULL DEFAULT 5,
+    max_positions INTEGER NOT NULL DEFAULT 10,
     entry_score INTEGER NOT NULL DEFAULT 30,
     exit_score INTEGER NOT NULL DEFAULT 15,
     minimum_confidence INTEGER NOT NULL DEFAULT 70,
@@ -278,6 +278,18 @@ export async function ensurePaperTradingSchema(db: D1Database) {
       PAPER_DEFAULTS.slippageRate,
       PAPER_DEFAULTS.maintenanceMarginRate,
       now,
+    )
+    .run();
+  await db
+    .prepare(
+      `UPDATE paper_account
+       SET max_positions = ?, updated_at = ?
+       WHERE id = 1 AND max_positions < ?`,
+    )
+    .bind(
+      PAPER_DEFAULTS.maxPositions,
+      now,
+      PAPER_DEFAULTS.maxPositions,
     )
     .run();
   await db.prepare("PRAGMA optimize").run();

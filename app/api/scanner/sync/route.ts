@@ -2,6 +2,10 @@ import {
   ensureScannerSchema,
   type ScannerEnv,
 } from "@/lib/background-scanner";
+import {
+  runBistPaperTradingCycleIfDue,
+} from "@/lib/bist-paper-trading";
+import { PAPER_DEFAULTS } from "@/lib/paper-trading";
 
 export const dynamic = "force-dynamic";
 
@@ -274,7 +278,10 @@ export async function POST(request: Request) {
           boundedNumber(paperAccount.cash_balance, 0, 10_000_000),
           boundedNumber(paperAccount.margin_per_trade, 1, 1_000_000),
           Math.round(boundedNumber(paperAccount.leverage, 1, 125)),
-          Math.round(boundedNumber(paperAccount.max_positions, 1, 20)),
+          Math.max(
+            PAPER_DEFAULTS.maxPositions,
+            Math.round(boundedNumber(paperAccount.max_positions, 1, 20)),
+          ),
           Math.round(boundedNumber(paperAccount.entry_score, 1, 100)),
           Math.round(boundedNumber(paperAccount.exit_score, 0, 100)),
           Math.round(boundedNumber(paperAccount.minimum_confidence, 0, 100)),
@@ -295,7 +302,10 @@ export async function POST(request: Request) {
     );
 
     const paperPositions = [
-      ...(payload.paper?.openPositions ?? []).slice(0, 5),
+      ...(payload.paper?.openPositions ?? []).slice(
+        0,
+        PAPER_DEFAULTS.maxPositions,
+      ),
       ...(payload.paper?.history ?? []).slice(0, 30),
     ];
     const seenIds = new Set<number>();
@@ -372,6 +382,14 @@ export async function POST(request: Request) {
   }
 
   await env.DB.batch(statements);
+  let bistPaper: Awaited<
+    ReturnType<typeof runBistPaperTradingCycleIfDue>
+  > | null = null;
+  try {
+    bistPaper = await runBistPaperTradingCycleIfDue(env.DB, Date.now());
+  } catch {
+    // The crypto snapshot must remain successful when the BIST provider is down.
+  }
   return Response.json(
     {
       ok: true,
@@ -379,6 +397,7 @@ export async function POST(request: Request) {
       scans,
       leaders: syncedLeaderCount,
       paperPositions: syncedPositionCount,
+      bistPaper,
     },
     { headers: { "Cache-Control": "no-store" } },
   );

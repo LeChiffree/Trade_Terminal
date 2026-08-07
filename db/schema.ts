@@ -90,7 +90,7 @@ export const paperAccount = sqliteTable("paper_account", {
   cashBalance: real("cash_balance").notNull().default(100_000),
   marginPerTrade: real("margin_per_trade").notNull().default(1_000),
   leverage: integer("leverage").notNull().default(5),
-  maxPositions: integer("max_positions").notNull().default(5),
+  maxPositions: integer("max_positions").notNull().default(10),
   entryScore: integer("entry_score").notNull().default(30),
   exitScore: integer("exit_score").notNull().default(15),
   minimumConfidence: integer("minimum_confidence").notNull().default(70),

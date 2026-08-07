@@ -508,6 +508,38 @@ export async function runBistPaperTradingCycle(
   }
 }
 
+export async function runBistPaperTradingCycleIfDue(
+  db: D1Database,
+  now = Date.now(),
+  minimumIntervalMs = 55_000,
+) {
+  await ensureBistPaperTradingSchema(db);
+  const account = await db
+    .prepare(
+      `SELECT enabled, last_cycle_at, lease_until
+       FROM bist_paper_account
+       WHERE id = 1`,
+    )
+    .first<{
+      enabled: number;
+      last_cycle_at: number;
+      lease_until: number;
+    }>();
+  if (!account?.enabled) {
+    return { skipped: true, reason: "disabled" } as const;
+  }
+  if (account.lease_until >= now) {
+    return { skipped: true, reason: "lease-active" } as const;
+  }
+  if (
+    account.last_cycle_at > 0 &&
+    now - account.last_cycle_at < minimumIntervalMs
+  ) {
+    return { skipped: true, reason: "not-due" } as const;
+  }
+  return await runBistPaperTradingCycle(db, now);
+}
+
 function emptyMetrics() {
   return {
     equity: BIST_PAPER_DEFAULTS.initialBalance,

@@ -672,7 +672,7 @@ function PaperTradeView({
         </article>
         <article className="panel">
           <small>Açık işlem</small>
-          <strong>{metrics?.openPositions ?? 0} / {account?.max_positions ?? 5}</strong>
+          <strong>{metrics?.openPositions ?? 0} / {account?.max_positions ?? 10}</strong>
           <span>{tryValue(metrics?.reservedMargin ?? 0)} bağlı marjin</span>
         </article>
         <article className="panel">
@@ -745,7 +745,7 @@ function PaperTradeView({
         <span>MODEL</span>
         <p>
           Giriş: en yüksek mutlak final puanlı, güveni en az %
-          {account?.minimum_confidence ?? 70} olan 5 benzersiz parite ve minimum
+          {account?.minimum_confidence ?? 70} olan 10 benzersiz parite ve minimum
           ±{account?.entry_score ?? 30} puan. Çıkış: puan ±
           {account?.exit_score ?? 15} nötr bölgesine dönerse, yön tersine
           dönerse veya izole tasfiye seviyesine ulaşırsa. Hesap; çift taraflı

@@ -64,6 +64,16 @@ test("packages the persistent scheduled scanner", async () => {
   assert.match(bistPaperMigration, /CREATE TABLE `bist_paper_account`/);
   assert.match(bistPaperMigration, /CREATE TABLE `bist_paper_positions`/);
   assert.match(bistPaperMigration, /PRAGMA optimize/);
+  const paperLimitMigration = await readFile(
+    new URL("../dist/.openai/drizzle/0004_neat_flatman.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(paperLimitMigration, /`max_positions` integer DEFAULT 10/);
+  assert.match(
+    paperLimitMigration,
+    /SET `max_positions` = 10 WHERE `max_positions` < 10/,
+  );
+  assert.match(paperLimitMigration, /PRAGMA optimize/);
 });
 
 test("exposes the independent BIST paper portfolio route", async () => {
@@ -139,6 +149,8 @@ test("replaces the production scanner leaderboard with each authenticated snapsh
       route.indexOf("INSERT INTO scanner_scores"),
   );
   assert.match(route, /DELETE FROM paper_positions/);
+  assert.match(route, /PAPER_DEFAULTS\.maxPositions/);
+  assert.match(route, /runBistPaperTradingCycleIfDue/);
 });
 
 test("returns 50 non-stablecoin USDT markets", async () => {

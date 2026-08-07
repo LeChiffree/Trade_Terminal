@@ -1,5 +1,6 @@
 import {
   getBistPaperTradingStatus,
+  runBistPaperTradingCycleIfDue,
 } from "@/lib/bist-paper-trading";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,11 @@ export async function GET() {
     );
   }
   try {
+    try {
+      await runBistPaperTradingCycleIfDue(database, Date.now());
+    } catch {
+      // Status still exposes the persisted provider error and last good state.
+    }
     return Response.json(await getBistPaperTradingStatus(database), {
       headers: { "Cache-Control": "no-store" },
     });

@@ -1,7 +1,7 @@
 # QuantScope Puanlama ve Paper Trading Algoritması
 
 > Bu doküman, uygulamanın mevcut kodundaki gerçek davranışı açıklar.  
-> Referans sürüm: `6248aa8` — 7 Ağustos 2026.
+> Referans tarih: 7 Ağustos 2026.
 
 ## 1. Genel akış
 
@@ -254,7 +254,7 @@ Gemini yalnızca kullanıcı analiz ekranındaki düğmeye bastığında çağr�
 | İşlem başına marjin | 1.000 TL |
 | Kaldıraç | 5x |
 | İşlem başına nominal büyüklük | 5.000 TL |
-| Maksimum açık pozisyon | 5 |
+| Maksimum açık pozisyon | 10 |
 | Giriş puanı | `|finalScore| ≥ 30` |
 | Minimum güven | `%70` |
 | Çıkış/nötr bölge | `|finalScore| ≤ 15` |
@@ -270,7 +270,7 @@ Gemini yalnızca kullanıcı analiz ekranındaki düğmeye bastığında çağr�
 4. `|finalScore| ≥ 30` ve `confidence ≥ 70` olmalıdır.
 5. Her coinde yalnızca bir pozisyon açılır. Böylece o coinin sıralamada ilk gelen, yani en güçlü frame’i seçilmiş olur.
 6. Aynı döngüde kapanan coin tekrar açılmaz.
-7. Açık pozisyon sayısı 5’e ulaştığında yeni işlem açılmaz.
+7. Açık pozisyon sayısı 10’a ulaştığında yeni işlem açılmaz.
 8. Binance Futures mark fiyatı yoksa işlem açılmaz.
 9. Kasa, marjin + giriş komisyonu + giriş kaymasını karşılamıyorsa işlem açılmaz.
 
@@ -531,6 +531,7 @@ Fiyat değişmezse 1.000 TL’lik BIST işleminde tahmini çift taraflı toplam 
 - Kripto tarayıcısı dakika içindeki `0`, `15`, `30` ve `45`. saniye adımlarında vadesi gelen frame’leri tarar.
 - Kripto paper portföyü bu adımlarda mark fiyatı ve mevcut skorlarla güncellenir.
 - BIST paper motoru her dakikalık zamanlayıcıda bir kez çalışır.
+- Yayın ortamındaki zamanlayıcı gecikirse aktif kripto tarayıcı senkronu ve BIST Paper durum isteği, motoru yalnızca süresi geldiyse çalıştıran yedek tetikleyicilerdir.
 - BIST motorunda 50 saniyelik lease, kripto tarayıcısında ayrı lease kullanılır; üst üste binen iki döngünün aynı işlemi iki kez açması engellenir.
 - Hesaplar, açık pozisyonlar ve kapanmış işlem geçmişi kalıcı D1/SQLite tablolarında tutulur.
 
@@ -578,4 +579,3 @@ Komisyon ve fiyat kayması toplamları ayrı izlenir. Kriptoda funding P/L de ay
 | BIST aday sıralaması ve P/L matematiği | `lib/bist-paper-math.ts` |
 | BIST paper pozisyon yaşam döngüsü | `lib/bist-paper-trading.ts` |
 | Dakikalık çalışma planı | `worker/index.ts` |
-
