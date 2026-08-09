@@ -525,7 +525,28 @@ netPnl =
 
 Fiyat değişmezse 1.000 TL’lik BIST işleminde tahmini çift taraflı toplam maliyet `1,40 TL`’dir.
 
-## 10. Zamanlayıcı ve kalıcı kayıt
+## 10. Binance Futures Demo eşleme motoru
+
+Binance Demo entegrasyonu etkinleştirildiğinde kripto paper portföyündeki
+açılış ve kapanışlar USD-M Futures Demo hesabına yansıtılır.
+
+- Emir adresi kod seviyesinde yalnızca `https://demo-fapi.binance.com` olabilir.
+  Üretim `fapi.binance.com` adresi kabul edilmez.
+- Her paper pozisyonuna deterministik açılış ve kapanış istemci emir kimliği
+  atanır. Aynı tarama tekrarlandığında aynı emir ikinci kez gönderilmez.
+- Demo pozisyonu paper yönünü ve kaldıraç değerini kullanır; marjin
+  `BINANCE_FUTURES_MARGIN_USDT` ile belirlenir.
+- Pozisyonlar isolated marjinle açılır.
+- Miktar, Binance `MARKET_LOT_SIZE`/`LOT_SIZE` adımına aşağı yuvarlanır ve
+  minimum notional kontrolünden geçirilir.
+- Paper pozisyonu kapanınca yalnızca eşleme motorunun açtığı miktar
+  `reduceOnly`/ilgili hedge yönüyle kapatılır.
+- Demo borsasında listelenmeyen paper sembolleri başka sembolle değiştirilmez;
+  beklemede tutulur ve hata durumu kaydedilir.
+- API anahtarları yalnızca izlenmeyen yerel env veya EC2 Docker secret dosyasında
+  bulunur; Git ve Sites kaynak paketine girmez.
+
+## 11. Zamanlayıcı ve kalıcı kayıt
 
 - Ana zamanlayıcı her dakika çalışır.
 - Kripto tarayıcısı dakika içindeki `0`, `15`, `30` ve `45`. saniye adımlarında vadesi gelen frame’leri tarar.
@@ -535,7 +556,7 @@ Fiyat değişmezse 1.000 TL’lik BIST işleminde tahmini çift taraflı toplam 
 - BIST motorunda 50 saniyelik lease, kripto tarayıcısında ayrı lease kullanılır; üst üste binen iki döngünün aynı işlemi iki kez açması engellenir.
 - Hesaplar, açık pozisyonlar ve kapanmış işlem geçmişi kalıcı D1/SQLite tablolarında tutulur.
 
-## 11. Portföy metrikleri
+## 12. Portföy metrikleri
 
 Her iki paper portföyünde:
 
@@ -555,7 +576,7 @@ winRate =
 
 Komisyon ve fiyat kayması toplamları ayrı izlenir. Kriptoda funding P/L de ayrıca takip edilir.
 
-## 12. Bilinen sınırlar ve yorumlama
+## 13. Bilinen sınırlar ve yorumlama
 
 - Paper sonuçları gerçek fill, sıra önceliği, likidite derinliği ve ani gap etkilerini tam olarak modellemez.
 - BIST verisi gecikmelidir; sistemin gösterdiği giriş/çıkış gerçek zamanlı BIST emri gibi yorumlanmamalıdır.
@@ -566,7 +587,7 @@ Komisyon ve fiyat kayması toplamları ayrı izlenir. Kriptoda funding P/L de ay
 - LLM sonucu otomatik paper trading karar zincirinde yer almaz.
 - Stratejinin kârlı olması garanti edilmez; gerçek para kullanmadan önce uzun süreli forward test ve parametre duyarlılık analizi gerekir.
 
-## 13. Kod referansları
+## 14. Kod referansları
 
 | Konu | Dosya |
 |---|---|
@@ -575,6 +596,7 @@ Komisyon ve fiyat kayması toplamları ayrı izlenir. Kriptoda funding P/L de ay
 | Fear & Greed, hacim, genişlik ve haber puanı | `lib/market-context.ts` |
 | Tarama sıklığı, e-posta eşikleri ve yeniden kurulum | `lib/background-scanner.ts` |
 | Kripto paper giriş/çıkış ve P/L | `lib/paper-trading.ts` |
+| Binance Futures Demo eşleme ve emir güvenliği | `lib/binance-demo-futures.ts` |
 | BIST teknik puanı ve veri evreni | `lib/bist.ts` |
 | BIST aday sıralaması ve P/L matematiği | `lib/bist-paper-math.ts` |
 | BIST paper pozisyon yaşam döngüsü | `lib/bist-paper-trading.ts` |

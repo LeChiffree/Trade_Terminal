@@ -25,8 +25,14 @@ sudo install -m 0600 deploy/ec2/scanner.env.example \
 ```
 
 Populate `scanner.env` with the Gmail application credentials, the scanner
-trigger shared with Sites, and a current Sites bypass bearer token. Do not add
+trigger shared with Sites, a current Sites bypass bearer token, and the Binance
+USD-M Futures Demo credentials when mirror trading is enabled. Do not add
 `Bearer ` in front of `SITES_SYNC_BEARER_TOKEN`; the service adds it.
+
+The order mirror is hard-locked to `https://demo-fapi.binance.com`. Set
+`BINANCE_FUTURES_TRADING_ENABLED=true`, `BINANCE_FUTURES_DEMO_ONLY=true`, and
+choose the virtual isolated margin per trade with
+`BINANCE_FUTURES_MARGIN_USDT`. Production Futures hosts are rejected.
 
 ## First start
 

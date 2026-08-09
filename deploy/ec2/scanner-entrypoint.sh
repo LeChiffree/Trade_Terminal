@@ -32,6 +32,13 @@ require_value SCANNER_TRIGGER_KEY
 require_value SITES_SYNC_BEARER_TOKEN
 require_value SITES_SYNC_URL
 
+if [ "${BINANCE_FUTURES_TRADING_ENABLED:-false}" = "true" ]; then
+  require_value BINANCE_API_KEY
+  require_value BINANCE_API_SECRET
+  require_value BINANCE_FUTURES_DEMO_ONLY
+  require_value BINANCE_FUTURES_BASE_URL
+fi
+
 case "$SITES_SYNC_URL" in
   https://*/api/scanner/sync) ;;
   *)
@@ -60,6 +67,12 @@ const keys = [
   "FASTACT_EMAIL_APP_PASSWORD",
   "FASTACT_EMAIL_RECIPIENT",
   "SCANNER_TRIGGER_KEY",
+  "BINANCE_API_KEY",
+  "BINANCE_API_SECRET",
+  "BINANCE_FUTURES_BASE_URL",
+  "BINANCE_FUTURES_TRADING_ENABLED",
+  "BINANCE_FUTURES_DEMO_ONLY",
+  "BINANCE_FUTURES_MARGIN_USDT",
 ];
 const content = keys
   .map((key) => `${key}=${JSON.stringify(process.env[key] ?? "")}`)

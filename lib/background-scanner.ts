@@ -15,6 +15,11 @@ import {
   getPaperTradingStatus,
   runPaperTradingCycle,
 } from "./paper-trading";
+import {
+  getBinanceDemoFuturesMirrorStatus,
+  runBinanceDemoFuturesMirrorCycle,
+  type BinanceDemoFuturesEnv,
+} from "./binance-demo-futures";
 
 export const SCANNER_INTERVALS = [
   { interval: "5m", cadenceSeconds: 15, phaseSeconds: 0, horizon: "çok kısa vadede" },
@@ -25,7 +30,7 @@ export const SCANNER_INTERVALS = [
   { interval: "1w", cadenceSeconds: 3_600, phaseSeconds: 120, horizon: "makro vadede" },
 ] as const;
 
-export type ScannerEnv = {
+export type ScannerEnv = BinanceDemoFuturesEnv & {
   DB?: D1Database;
   SCANNER_TRIGGER_KEY?: string;
   FASTACT_EMAIL_SENDER?: string;
@@ -812,8 +817,9 @@ export async function runScheduledScannerMinute(
       }
       try {
         await runPaperTradingCycle(db, Date.now());
+        await runBinanceDemoFuturesMirrorCycle(db, env, Date.now());
       } catch (error) {
-        console.error("Paper trade cycle failed", error);
+        console.error("Paper/demo Futures cycle failed", error);
       }
       await db
         .prepare(
@@ -828,8 +834,9 @@ export async function runScheduledScannerMinute(
   } catch (error) {
     try {
       await runPaperTradingCycle(db, Date.now());
+      await runBinanceDemoFuturesMirrorCycle(db, env, Date.now());
     } catch (paperError) {
-      console.error("Paper trade fallback cycle failed", paperError);
+      console.error("Paper/demo Futures fallback cycle failed", paperError);
     }
     const message =
       error instanceof Error ? error.message.slice(0, 500) : "Tarama görevi başarısız.";
@@ -856,7 +863,7 @@ export async function runScheduledScannerMinute(
 
 export async function getScannerStatus(db: D1Database) {
   await ensureScannerSchema(db);
-  const [config, intervals, leaders, alerts, paper] = await Promise.all([
+  const [config, intervals, leaders, alerts, paper, demoFutures] = await Promise.all([
     db.prepare(`SELECT * FROM scanner_config WHERE id = 1`).first(),
     db
       .prepare(
@@ -887,6 +894,7 @@ export async function getScannerStatus(db: D1Database) {
       )
       .all(),
     getPaperTradingStatus(db),
+    getBinanceDemoFuturesMirrorStatus(db),
   ]);
   return {
     configured: true,
@@ -895,6 +903,7 @@ export async function getScannerStatus(db: D1Database) {
     leaders: leaders.results,
     alerts: alerts.results,
     paper,
+    demoFutures,
     generatedAt: Date.now(),
   };
 }

@@ -10,6 +10,12 @@ interface Env {
   FASTACT_EMAIL_SENDER?: string;
   FASTACT_EMAIL_APP_PASSWORD?: string;
   FASTACT_EMAIL_RECIPIENT?: string;
+  BINANCE_API_KEY?: string;
+  BINANCE_API_SECRET?: string;
+  BINANCE_FUTURES_BASE_URL?: string;
+  BINANCE_FUTURES_TRADING_ENABLED?: string;
+  BINANCE_FUTURES_DEMO_ONLY?: string;
+  BINANCE_FUTURES_MARGIN_USDT?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {

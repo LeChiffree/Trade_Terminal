@@ -149,6 +149,45 @@ export const paperPositions = sqliteTable(
   ],
 );
 
+export const binanceDemoFuturesState = sqliteTable(
+  "binance_demo_futures_state",
+  {
+    id: integer("id").primaryKey(),
+    enabled: integer("enabled").notNull().default(0),
+    baseUrl: text("base_url").notNull().default(""),
+    marginUsdt: real("margin_usdt").notNull().default(25),
+    lastCycleAt: integer("last_cycle_at").notNull().default(0),
+    lastError: text("last_error"),
+    opensSucceeded: integer("opens_succeeded").notNull().default(0),
+    closesSucceeded: integer("closes_succeeded").notNull().default(0),
+    updatedAt: integer("updated_at").notNull().default(0),
+  },
+);
+
+export const binanceDemoFuturesMirrors = sqliteTable(
+  "binance_demo_futures_mirrors",
+  {
+    paperPositionId: integer("paper_position_id").primaryKey(),
+    symbol: text("symbol").notNull(),
+    direction: text("direction").notNull(),
+    quantity: real("quantity").notNull().default(0),
+    leverage: integer("leverage").notNull(),
+    marginUsdt: real("margin_usdt").notNull(),
+    openClientOrderId: text("open_client_order_id").notNull().unique(),
+    closeClientOrderId: text("close_client_order_id").notNull().unique(),
+    openOrderId: integer("open_order_id"),
+    closeOrderId: integer("close_order_id"),
+    status: text("status").notNull().default("pending-open"),
+    lastError: text("last_error"),
+    openedAt: integer("opened_at"),
+    closedAt: integer("closed_at"),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_binance_demo_mirrors_status").on(table.status, table.updatedAt),
+  ],
+);
+
 export const bistPaperAccount = sqliteTable("bist_paper_account", {
   id: integer("id").primaryKey(),
   enabled: integer("enabled").notNull().default(1),

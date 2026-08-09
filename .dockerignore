@@ -2,9 +2,11 @@
 .env
 .env.*
 !.env.example
+.dev.vars*
 .scanner-service.ps1
 .scanner-trigger.ps1
 .scanner-worker.jsonc
+.scanner-worker.runtime.jsonc
 .openai
 .sites-runtime
 .vinext

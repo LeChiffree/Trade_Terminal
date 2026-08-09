@@ -44,6 +44,16 @@ test("keeps EC2 credentials outside the image and tracked configuration", async 
     await readFile(files.secrets, "utf8"),
     /^SITES_SYNC_BEARER_TOKEN=$/m,
   );
+  assert.match(
+    await readFile(files.secrets, "utf8"),
+    /^BINANCE_API_KEY=$/m,
+  );
+  assert.match(
+    await readFile(files.secrets, "utf8"),
+    /^BINANCE_API_SECRET=$/m,
+  );
+  assert.match(combined, /BINANCE_FUTURES_DEMO_ONLY/);
+  assert.doesNotMatch(combined, /https:\/\/fapi\.binance\.com/);
   const dockerignore = await readFile(files.dockerignore, "utf8");
   assert.match(dockerignore, /^\.env\.\*$/m);
   assert.match(dockerignore, /^\.scanner-service\.ps1$/m);
