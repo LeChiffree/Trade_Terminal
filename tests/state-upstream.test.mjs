@@ -10,7 +10,7 @@ test("requires an HTTPS path-specific state upstream and keeps auth server-side"
   assert.match(source, /url\.protocol !== "https:"/);
   assert.match(source, /url\.pathname !== expectedPath/);
   assert.match(source, /OAI-Sites-Authorization/);
-  assert.match(source, /redirect: "error"/);
-  assert.match(source, /AbortSignal\.timeout/);
+  assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /response\.redirected/);
   assert.doesNotMatch(source, /NEXT_PUBLIC_/);
 });

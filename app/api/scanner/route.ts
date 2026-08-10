@@ -13,7 +13,11 @@ export async function GET() {
       "/api/scanner",
     );
     if (upstream) return upstream;
-  } catch {
+  } catch (error) {
+    console.error(
+      "Scanner state upstream failed",
+      error instanceof Error ? error.message : "unknown error",
+    );
     return Response.json(
       {
         configured: false,

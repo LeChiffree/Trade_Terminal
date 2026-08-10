@@ -28,16 +28,24 @@ export async function fetchStateUpstream(
     throw new Error("Sites durum okuma anahtarı yapılandırılmadı.");
   }
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      "OAI-Sites-Authorization": `Bearer ${bearer}`,
-    },
-    cache: "no-store",
-    redirect: "error",
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "OAI-Sites-Authorization": `Bearer ${bearer}`,
+      },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (response.redirected) {
+    throw new Error("Sites durum isteği beklenmeyen biçimde yönlendirildi.");
+  }
   const body = await response.arrayBuffer();
   return new Response(body, {
     status: response.status,
