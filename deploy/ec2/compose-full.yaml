@@ -48,7 +48,9 @@ services:
       PORT: 8791
       PERSIST_DIR: /data
       SCANNER_STATUS_UPSTREAM_URL: ${SCANNER_STATUS_UPSTREAM_URL:-https://quantscope-terminal.hikmet-onur21.chatgpt.site/api/scanner}
-      BIST_PAPER_STATUS_UPSTREAM_URL: ${BIST_PAPER_STATUS_UPSTREAM_URL:-https://quantscope-terminal.hikmet-onur21.chatgpt.site/api/bist/paper}
+      # Run BIST paper trading against EC2's persistent local D1 so scoring and
+      # portfolio migrations always match the deployed application version.
+      BIST_PAPER_STATUS_UPSTREAM_URL: ""
       XDG_CONFIG_HOME: /tmp/quantscope/config
       WRANGLER_LOG_PATH: /tmp/quantscope/wrangler-logs
       MINIFLARE_REGISTRY_PATH: /tmp/quantscope/miniflare-registry
