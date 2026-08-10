@@ -26,6 +26,7 @@ import type {
 } from "@/lib/paper-trading";
 import BistTerminal from "./bist-terminal";
 import BistPaper from "./bist-paper";
+import RadioPlayer from "./radio-player";
 
 type NavKey =
   | "Analiz"
@@ -1005,7 +1006,7 @@ export default function Home() {
       <section className="workspace">
         <header className="topbar">
           <div><small>CANLI TEKNİK KARAR TERMİNALİ</small><h1>{activeNav}</h1></div>
-          <div className="top-actions"><div className={`freshness ${activeNav === "BIST 80" || activeNav === "BIST Paper" ? "bist-mode" : liveDataReady ? "" : "offline"}`}><i /> {activeNav === "BIST 80" || activeNav === "BIST Paper" ? "BIST GECİKMELİ" : loading ? "YÜKLENİYOR" : liveDataReady ? "WS CANLI" : "AKIŞ BEKLENİYOR"} <span>{activeNav === "BIST 80" || activeNav === "BIST Paper" ? "• ≥15 dk" : `• ${freshness} sn önce`}</span></div></div>
+          <div className="top-actions"><RadioPlayer /><div className={`freshness ${activeNav === "BIST 80" || activeNav === "BIST Paper" ? "bist-mode" : liveDataReady ? "" : "offline"}`}><i /> {activeNav === "BIST 80" || activeNav === "BIST Paper" ? "BIST GECİKMELİ" : loading ? "YÜKLENİYOR" : liveDataReady ? "WS CANLI" : "AKIŞ BEKLENİYOR"} <span>{activeNav === "BIST 80" || activeNav === "BIST Paper" ? "• ≥15 dk" : `• ${freshness} sn önce`}</span></div></div>
         </header>
 
         {activeNav !== "Paper Trade" && activeNav !== "BIST 80" && activeNav !== "BIST Paper" && <><div className="symbol-row">
