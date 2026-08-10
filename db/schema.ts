@@ -246,32 +246,3 @@ export const bistPaperPositions = sqliteTable(
     ),
   ],
 );
-
-export const catalogJobs = sqliteTable(
-  "catalog_jobs",
-  {
-    id: text("id").primaryKey(),
-    ownerEmail: text("owner_email").notNull(),
-    site: text("site").notNull(),
-    status: text("status").notNull().default("queued"),
-    progress: integer("progress").notNull().default(0),
-    message: text("message").notNull().default("Tarama sırasına eklendi."),
-    error: text("error"),
-    objectKey: text("object_key"),
-    filename: text("filename"),
-    createdAt: integer("created_at").notNull(),
-    startedAt: integer("started_at"),
-    finishedAt: integer("finished_at"),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [
-    index("idx_catalog_jobs_owner_created").on(
-      table.ownerEmail,
-      table.createdAt,
-    ),
-    index("idx_catalog_jobs_status_created").on(
-      table.status,
-      table.createdAt,
-    ),
-  ],
-);
