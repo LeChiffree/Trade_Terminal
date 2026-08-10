@@ -8,6 +8,8 @@ const files = {
   fullCompose: new URL("../deploy/ec2/compose-full.yaml", import.meta.url),
   entrypoint: new URL("../deploy/ec2/scanner-entrypoint.sh", import.meta.url),
   worker: new URL("../deploy/ec2/scanner-worker.jsonc", import.meta.url),
+  webEntrypoint: new URL("../deploy/ec2/web-entrypoint.sh", import.meta.url),
+  webWorker: new URL("../deploy/ec2/web-worker.jsonc", import.meta.url),
   scannerSource: new URL("../lib/background-scanner.ts", import.meta.url),
   secrets: new URL("../deploy/ec2/scanner.env.example", import.meta.url),
   secretInstaller: new URL("../deploy/ec2/install-scanner-secret.sh", import.meta.url),
@@ -46,7 +48,13 @@ test("packages an EC2 scanner without publishing its private listener", async ()
 });
 
 test("isolates the EC2 frontend from the scanner state owner", async () => {
-  const fullCompose = await readFile(files.fullCompose, "utf8");
+  const [fullCompose, dockerfile, webEntrypoint, webWorkerText] = await Promise.all([
+    readFile(files.fullCompose, "utf8"),
+    readFile(files.dockerfile, "utf8"),
+    readFile(files.webEntrypoint, "utf8"),
+    readFile(files.webWorker, "utf8"),
+  ]);
+  const webWorker = JSON.parse(webWorkerText);
   const scannerBlock = fullCompose.split("\n  web:")[0];
 
   assert.match(fullCompose, /SCANNER_STATUS_UPSTREAM_URL:/);
@@ -59,6 +67,10 @@ test("isolates the EC2 frontend from the scanner state owner", async () => {
   assert.doesNotMatch(scannerBlock, /^\s*ports:/m);
   assert.match(fullCompose, /\/app\/\.wrangler:size=/);
   assert.match(fullCompose, /\/app\/node_modules\/\.mf:size=/);
+  assert.match(dockerfile, /web-worker\.jsonc \.\/\.web-worker\.jsonc/);
+  assert.match(webEntrypoint, /--config \/app\/\.web-worker\.jsonc/);
+  assert.equal(webWorker.assets.binding, "ASSETS");
+  assert.equal(webWorker.assets.directory, "./dist/client");
 });
 
 test("keeps EC2 credentials outside the image and tracked configuration", async () => {

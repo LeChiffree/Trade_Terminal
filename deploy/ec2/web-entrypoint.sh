@@ -40,7 +40,7 @@ writeFileSync(output, `${content}\n`, { encoding: "utf8", mode: 0o600 });
 NODE
 
 exec node /app/node_modules/wrangler/bin/wrangler.js dev \
-  --config /app/.scanner-worker.jsonc \
+  --config /app/.web-worker.jsonc \
   --ip 0.0.0.0 \
   --port "$port" \
   --local \
