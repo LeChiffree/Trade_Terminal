@@ -2,10 +2,29 @@ import {
   getScannerStatus,
   type ScannerEnv,
 } from "@/lib/background-scanner";
+import { fetchStateUpstream } from "@/lib/state-upstream";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  try {
+    const upstream = await fetchStateUpstream(
+      "SCANNER_STATUS_UPSTREAM_URL",
+      "/api/scanner",
+    );
+    if (upstream) return upstream;
+  } catch {
+    return Response.json(
+      {
+        configured: false,
+        error: "Uzak tarayıcı durumu şu anda okunamadı.",
+        intervals: [],
+        leaders: [],
+        alerts: [],
+      },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
   const cloudflare = await import("cloudflare:workers");
   const database = (cloudflare.env as unknown as ScannerEnv).DB;
   if (!database) {

@@ -125,14 +125,14 @@ fi
 log "QuantScope scanner is ready."
 
 run_cycle() {
-  curl --fail --silent --show-error --max-time 90 \
-    "http://127.0.0.1:$port/__scheduled" >/dev/null
+  curl --fail --silent --show-error --max-time 240 \
+    "http://127.0.0.1:$port/__scheduled" >/dev/null || return 1
 
   curl --fail --silent --show-error --max-time 20 \
     "http://127.0.0.1:$port/api/scanner" \
-    --output "$status_file"
+    --output "$status_file" || return 1
   jq -e '.config and .intervals and .leaders and .paper' \
-    "$status_file" >/dev/null
+    "$status_file" >/dev/null || return 1
 
   curl --fail --silent --show-error --max-time 30 \
     --retry 2 \
@@ -145,8 +145,8 @@ run_cycle() {
     --header "X-QuantScope-Trigger: $SCANNER_TRIGGER_KEY" \
     --data-binary "@$status_file" \
     --output "$sync_file" \
-    "$SITES_SYNC_URL"
-  jq -e '.ok == true' "$sync_file" >/dev/null
+    "$SITES_SYNC_URL" || return 1
+  jq -e '.ok == true' "$sync_file" >/dev/null || return 1
 
   scans="$(jq -r '.config.scans_completed // 0' "$status_file")"
   alerts="$(jq -r '.config.alerts_sent // 0' "$status_file")"

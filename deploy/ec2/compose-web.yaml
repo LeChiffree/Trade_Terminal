@@ -12,6 +12,8 @@ services:
       TZ: Europe/Istanbul
       PORT: 8791
       PERSIST_DIR: /data
+      SCANNER_STATUS_UPSTREAM_URL: ${SCANNER_STATUS_UPSTREAM_URL:-https://quantscope-terminal.hikmet-onur21.chatgpt.site/api/scanner}
+      BIST_PAPER_STATUS_UPSTREAM_URL: ${BIST_PAPER_STATUS_UPSTREAM_URL:-https://quantscope-terminal.hikmet-onur21.chatgpt.site/api/bist/paper}
       XDG_CONFIG_HOME: /tmp/quantscope/config
       WRANGLER_LOG_PATH: /tmp/quantscope/wrangler-logs
       MINIFLARE_REGISTRY_PATH: /tmp/quantscope/miniflare-registry
@@ -19,9 +21,11 @@ services:
       WRANGLER_WRITE_LOGS: "false"
     ports:
       - "80:8791"
+    secrets:
+      - scanner_env
     volumes:
       - type: bind
-        source: ${QUANTSCOPE_DATA_DIR:-/opt/quantscope/data}
+        source: ${QUANTSCOPE_WEB_DATA_DIR:-/opt/quantscope/web-data}
         target: /data
     read_only: true
     tmpfs:
@@ -44,3 +48,7 @@ services:
       options:
         max-size: 10m
         max-file: "5"
+
+secrets:
+  scanner_env:
+    file: ${QUANTSCOPE_SECRET_FILE:-/opt/quantscope/secrets/scanner.env}

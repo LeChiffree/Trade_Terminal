@@ -34,14 +34,18 @@ test("packages an EC2 scanner without publishing its private listener", async ()
   assert.equal(worker.d1_databases[0].binding, "DB");
 });
 
-test("serves the EC2 frontend and scanner from one state-owning process", async () => {
+test("isolates the EC2 frontend from the scanner state owner", async () => {
   const fullCompose = await readFile(files.fullCompose, "utf8");
+  const scannerBlock = fullCompose.split("\n  web:")[0];
 
-  assert.match(fullCompose, /BIND_ADDRESS: 0\.0\.0\.0/);
-  assert.match(fullCompose, /- "80:8791"/);
+  assert.match(fullCompose, /SCANNER_STATUS_UPSTREAM_URL:/);
+  assert.match(fullCompose, /BIST_PAPER_STATUS_UPSTREAM_URL:/);
+  assert.match(fullCompose, /ports: \["80:8791"\]/);
   assert.match(fullCompose, /scanner_env/);
   assert.match(fullCompose, /source: \$\{QUANTSCOPE_DATA_DIR:-\/opt\/quantscope\/data\}/);
-  assert.equal((fullCompose.match(/target: \/data/g) ?? []).length, 1);
+  assert.match(fullCompose, /source: \$\{QUANTSCOPE_WEB_DATA_DIR:-\/opt\/quantscope\/web-data\}/);
+  assert.equal((fullCompose.match(/target: \/data/g) ?? []).length, 2);
+  assert.doesNotMatch(scannerBlock, /^\s*ports:/m);
   assert.match(fullCompose, /\/app\/\.wrangler:size=/);
   assert.match(fullCompose, /\/app\/node_modules\/\.mf:size=/);
 });
@@ -79,7 +83,8 @@ test("installs only demo-scanner secrets and removes transport uploads", async (
   const installer = await readFile(files.secretInstaller, "utf8");
 
   assert.match(installer, /BINANCE_FUTURES_BASE_URL.*demo-fapi\.binance\.com/s);
-  assert.match(installer, /install -m 0600 -o root -g root/);
+  assert.match(installer, /install -m 0640 -o root -g 10001/);
   assert.match(installer, /rm -f "\$source_env" "\$source_service"/);
-  assert.doesNotMatch(installer, /GEMINI_API_KEY/);
+  assert.match(installer, /GEMINI_API_KEY/);
+  assert.match(installer, /GEMINI_MODEL/);
 });

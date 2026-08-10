@@ -21,7 +21,7 @@ Create these paths before the first start:
 ```sh
 sudo install -d -m 0750 -o 10001 -g 10001 /opt/quantscope/data
 sudo install -d -m 0700 /opt/quantscope/secrets
-sudo install -m 0600 deploy/ec2/scanner.env.example \
+sudo install -m 0640 -o root -g 10001 deploy/ec2/scanner.env.example \
   /opt/quantscope/secrets/scanner.env
 ```
 
@@ -42,8 +42,11 @@ the root-owned secret file and removes both uploads.
 
 ## Full frontend and scanner start (recommended)
 
-Use one Worker/Miniflare process for both HTTP traffic and scheduled scanner
-cycles. This prevents two containers from writing the same local D1 files.
+The scanner container is the only writer of scanner and paper-trading D1 state.
+The web container uses a separate local data directory and reads the published
+state through authenticated server-side upstream routes. Long scanner cycles
+therefore cannot block the frontend, and no SQLite files are shared by two
+processes.
 
 ```sh
 docker compose -f deploy/ec2/compose-full.yaml build

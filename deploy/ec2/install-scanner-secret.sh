@@ -28,6 +28,8 @@ required_values="
 FASTACT_EMAIL_SENDER
 FASTACT_EMAIL_APP_PASSWORD
 FASTACT_EMAIL_RECIPIENT
+GEMINI_API_KEY
+GEMINI_MODEL
 SCANNER_TRIGGER_KEY
 SITES_SYNC_BEARER_TOKEN
 BINANCE_API_KEY
@@ -62,6 +64,8 @@ trap cleanup EXIT INT TERM
   printf 'FASTACT_EMAIL_SENDER=%s\n' "$FASTACT_EMAIL_SENDER"
   printf 'FASTACT_EMAIL_APP_PASSWORD=%s\n' "$FASTACT_EMAIL_APP_PASSWORD"
   printf 'FASTACT_EMAIL_RECIPIENT=%s\n' "$FASTACT_EMAIL_RECIPIENT"
+  printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
+  printf 'GEMINI_MODEL=%s\n' "$GEMINI_MODEL"
   printf 'SCANNER_TRIGGER_KEY=%s\n' "$SCANNER_TRIGGER_KEY"
   printf 'SITES_SYNC_BEARER_TOKEN=%s\n' "$SITES_SYNC_BEARER_TOKEN"
   printf 'BINANCE_API_KEY=%s\n' "$BINANCE_API_KEY"
@@ -73,7 +77,7 @@ trap cleanup EXIT INT TERM
 } > "$temporary_file"
 
 sudo install -d -m 0700 "$(dirname "$destination")"
-sudo install -m 0600 -o root -g root "$temporary_file" "$destination"
+sudo install -m 0640 -o root -g 10001 "$temporary_file" "$destination"
 rm -f "$source_env" "$source_service"
 
-echo "Scanner secret installed with root-only permissions."
+echo "Scanner secret installed for root and the fixed container runtime group."
