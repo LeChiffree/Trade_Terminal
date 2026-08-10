@@ -6,6 +6,8 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+RUN mkdir -p .openai
+COPY deploy/ec2/hosting.json ./.openai/hosting.json
 RUN npm run build
 
 FROM node:22.19.0-bookworm-slim AS runtime
