@@ -150,6 +150,9 @@ test("replaces the production scanner leaderboard with each authenticated snapsh
   );
   assert.match(route, /DELETE FROM paper_positions/);
   assert.match(route, /PAPER_DEFAULTS\.maxPositions/);
+  assert.match(route, /DELETE FROM binance_demo_futures_mirrors/);
+  assert.match(route, /BINANCE_FUTURES_DEMO_BASE_URL/);
+  assert.match(route, /VALID_DEMO_MIRROR_STATUSES/);
   assert.match(route, /runBistPaperTradingCycleIfDue/);
 });
 
