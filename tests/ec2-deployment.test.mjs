@@ -34,7 +34,10 @@ test("packages an EC2 scanner without publishing its private listener", async ()
   assert.match(entrypoint, /bind_address="\$\{BIND_ADDRESS:-127\.0\.0\.1\}"/);
   assert.match(entrypoint, /--ip "\$bind_address"/);
   assert.match(entrypoint, /\/__scheduled/);
+  assert.match(entrypoint, /15 - \(now % 15\)/);
+  assert.match(entrypoint, /status_attempt.*-le 30/s);
   assert.match(entrypoint, /OAI-Sites-Authorization: Bearer/);
+  assert.match(compose, /SCANNER_SINGLE_TICK: "true"/);
   assert.deepEqual(worker.triggers.crons, ["* * * * *"]);
   assert.equal(worker.d1_databases[0].binding, "DB");
 });

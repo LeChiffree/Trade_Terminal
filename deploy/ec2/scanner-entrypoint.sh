@@ -68,6 +68,7 @@ const keys = [
   "FASTACT_EMAIL_APP_PASSWORD",
   "FASTACT_EMAIL_RECIPIENT",
   "SCANNER_TRIGGER_KEY",
+  "SCANNER_SINGLE_TICK",
   "BINANCE_API_KEY",
   "BINANCE_API_SECRET",
   "BINANCE_FUTURES_BASE_URL",
@@ -125,12 +126,25 @@ fi
 log "QuantScope scanner is ready."
 
 run_cycle() {
-  curl --fail --silent --show-error --max-time 240 \
+  curl --fail --silent --show-error --max-time 120 \
     "http://127.0.0.1:$port/__scheduled" >/dev/null || return 1
 
-  curl --fail --silent --show-error --max-time 20 \
-    "http://127.0.0.1:$port/api/scanner" \
-    --output "$status_file" || return 1
+  status_ready=0
+  status_attempt=1
+  while [ "$status_attempt" -le 30 ]; do
+    if curl --fail --silent --show-error --max-time 5 \
+      "http://127.0.0.1:$port/api/scanner" \
+      --output "$status_file"; then
+      status_ready=1
+      break
+    fi
+    sleep 2
+    status_attempt=$((status_attempt + 1))
+  done
+  if [ "$status_ready" -ne 1 ]; then
+    log "Scanner status did not become readable after the tick."
+    return 1
+  fi
   jq -e '.config and .intervals and .leaders and .paper' \
     "$status_file" >/dev/null || return 1
 
@@ -161,7 +175,7 @@ while true; do
   fi
 
   now="$(date +%s)"
-  delay=$((60 - (now % 60)))
+  delay=$((15 - (now % 15)))
   sleep "$delay"
 
   if ! run_cycle; then

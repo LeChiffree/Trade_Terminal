@@ -7,6 +7,7 @@ import { runBistPaperTradingCycleIfDue } from "../lib/bist-paper-trading";
 interface Env {
   ASSETS: Fetcher;
   DB?: D1Database;
+  SCANNER_SINGLE_TICK?: string;
   FASTACT_EMAIL_SENDER?: string;
   FASTACT_EMAIL_APP_PASSWORD?: string;
   FASTACT_EMAIL_RECIPIENT?: string;

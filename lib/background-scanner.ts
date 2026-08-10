@@ -33,6 +33,7 @@ export const SCANNER_INTERVALS = [
 export type ScannerEnv = BinanceDemoFuturesEnv & {
   DB?: D1Database;
   SCANNER_TRIGGER_KEY?: string;
+  SCANNER_SINGLE_TICK?: string;
   FASTACT_EMAIL_SENDER?: string;
   FASTACT_EMAIL_APP_PASSWORD?: string;
   FASTACT_EMAIL_RECIPIENT?: string;
@@ -799,7 +800,10 @@ export async function runScheduledScannerMinute(
       return { skipped: true, reason: "disabled" };
     }
 
-    for (const offsetSeconds of [0, 15, 30, 45]) {
+    const singleTick = ["1", "true", "yes", "on"].includes(
+      String(env.SCANNER_SINGLE_TICK ?? "").trim().toLowerCase(),
+    );
+    for (const offsetSeconds of singleTick ? [0] : [0, 15, 30, 45]) {
       const delay = scheduledTime + offsetSeconds * 1_000 - Date.now();
       if (delay > 0) await wait(delay);
       const tickTime = Date.now();
