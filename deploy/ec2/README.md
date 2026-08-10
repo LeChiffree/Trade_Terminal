@@ -1,8 +1,9 @@
 # QuantScope EC2 scanner
 
-This package moves only the always-on scanner, email alerts, and paper-trading
-engine to EC2. The existing Sites UI/API and its D1 read model remain unchanged.
-Gemini stays on the manual UI endpoint and is not called by the EC2 process.
+This package can run either only the always-on scanner or the complete
+QuantScope frontend and scanner in one EC2 container. The full deployment is
+recommended when the EC2 address should serve the application directly.
+Gemini stays on the manual UI endpoint and is not called by background cycles.
 
 ## Recommended host
 
@@ -34,7 +35,23 @@ The order mirror is hard-locked to `https://demo-fapi.binance.com`. Set
 choose the virtual isolated margin per trade with
 `BINANCE_FUTURES_MARGIN_USDT`. Production Futures hosts are rejected.
 
-## First start
+## Full frontend and scanner start (recommended)
+
+Use one Worker/Miniflare process for both HTTP traffic and scheduled scanner
+cycles. This prevents two containers from writing the same local D1 files.
+
+```sh
+docker compose -f deploy/ec2/compose-full.yaml build
+docker compose -f deploy/ec2/compose-full.yaml up -d
+docker compose -f deploy/ec2/compose-full.yaml ps
+docker compose -f deploy/ec2/compose-full.yaml logs --tail=100 app
+```
+
+The application is published on host port 80. Restrict SSH to trusted source
+addresses in the EC2 security group and expose only the intended HTTP/HTTPS
+ports.
+
+## Scanner-only start
 
 From the project root:
 
@@ -45,7 +62,7 @@ docker compose -f deploy/ec2/compose.yaml ps
 docker compose -f deploy/ec2/compose.yaml logs --tail=100 scanner
 ```
 
-The container binds its Worker only to `127.0.0.1` and publishes no host port.
+The scanner-only container binds its Worker only to `127.0.0.1` and publishes no host port.
 It writes scanner and paper-trading state under `/opt/quantscope/data`.
 
 ## State transfer and cutover

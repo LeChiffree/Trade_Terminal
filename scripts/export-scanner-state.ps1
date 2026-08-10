@@ -10,7 +10,14 @@ $stateDirectory = Join-Path $project ".wrangler\scanner-service"
 $outputDirectory = Join-Path $project "outputs\ec2"
 $taskName = "QuantScope Background Scanner"
 $port = 8791
-$scannerConfig = Join-Path $project ".scanner-worker.jsonc"
+$scannerConfigs = @(
+  (Join-Path $project ".scanner-worker.jsonc"),
+  (Join-Path $project "deploy\local\scanner-worker.jsonc")
+)
+$scannerSupervisors = @(
+  (Join-Path $project ".scanner-service.ps1"),
+  (Join-Path $project "scripts\local-scanner-service.ps1")
+)
 $timestamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
 $archive = Join-Path $outputDirectory "scanner-state-$timestamp.tar.gz"
 $taskWasRunning = $false
@@ -19,8 +26,28 @@ if (-not (Test-Path -LiteralPath $stateDirectory)) {
   throw "Scanner state directory was not found: $stateDirectory"
 }
 
-$task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-$taskWasRunning = $task.State -eq "Running"
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+$taskWasRunning = $null -ne $task -and $task.State -eq "Running"
+
+function Test-ScannerCommandLine([string] $CommandLine) {
+  if ([string]::IsNullOrWhiteSpace($CommandLine)) {
+    return $false
+  }
+  foreach ($path in @($scannerConfigs + $scannerSupervisors)) {
+    if ($CommandLine.IndexOf(
+      $path,
+      [System.StringComparison]::OrdinalIgnoreCase
+    ) -ge 0) {
+      return $true
+    }
+  }
+  return $false
+}
+
+$scannerWasRunning = @(
+  Get-CimInstance Win32_Process |
+    Where-Object { Test-ScannerCommandLine $_.CommandLine }
+).Count -gt 0
 
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 
@@ -29,11 +56,7 @@ function Stop-ScannerProcessTree {
   $targetIds = [System.Collections.Generic.HashSet[uint32]]::new()
 
   foreach ($process in $processes) {
-    if ($process.CommandLine -and
-        $process.CommandLine.IndexOf(
-          $scannerConfig,
-          [System.StringComparison]::OrdinalIgnoreCase
-        ) -ge 0) {
+    if (Test-ScannerCommandLine $process.CommandLine) {
       $targetIds.Add([uint32] $process.ProcessId) | Out-Null
     }
   }
@@ -87,11 +110,7 @@ try {
     $remaining = @(
       Get-CimInstance Win32_Process |
         Where-Object {
-          $_.CommandLine -and
-          $_.CommandLine.IndexOf(
-            $scannerConfig,
-            [System.StringComparison]::OrdinalIgnoreCase
-          ) -ge 0
+          Test-ScannerCommandLine $_.CommandLine
         }
     )
     if ($remaining.Count -eq 0) {
@@ -103,11 +122,7 @@ try {
   $remaining = @(
     Get-CimInstance Win32_Process |
       Where-Object {
-        $_.CommandLine -and
-        $_.CommandLine.IndexOf(
-          $scannerConfig,
-          [System.StringComparison]::OrdinalIgnoreCase
-        ) -ge 0
+        Test-ScannerCommandLine $_.CommandLine
       }
   )
   if ($remaining.Count -gt 0) {
@@ -133,7 +148,7 @@ try {
   Write-Output "Scanner state exported: $($result.FullName) ($($result.Length) bytes)"
 }
 finally {
-  if ($taskWasRunning -and -not $KeepStopped) {
+  if ($scannerWasRunning -and -not $KeepStopped -and $null -ne $task) {
     Start-ScheduledTask -TaskName $taskName
     Write-Output "The Windows scanner was restarted after the consistent snapshot."
   }

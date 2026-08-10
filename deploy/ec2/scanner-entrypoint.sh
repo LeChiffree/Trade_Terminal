@@ -48,6 +48,7 @@ case "$SITES_SYNC_URL" in
 esac
 
 port="${PORT:-8791}"
+bind_address="${BIND_ADDRESS:-127.0.0.1}"
 persist_dir="${PERSIST_DIR:-/data}"
 runtime_dir="/tmp/quantscope"
 worker_env="$runtime_dir/worker.env"
@@ -91,7 +92,7 @@ trap stop_worker INT TERM EXIT
 
 node "$wrangler" dev \
   --config "$config" \
-  --ip 127.0.0.1 \
+  --ip "$bind_address" \
   --port "$port" \
   --local \
   --test-scheduled \

@@ -1,0 +1,46 @@
+name: quantscope
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/ec2/Dockerfile
+    image: quantscope:${QUANTSCOPE_IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment:
+      SITES_SYNC_URL: ${SITES_SYNC_URL:-https://quantscope-terminal.hikmet-onur21.chatgpt.site/api/scanner/sync}
+      BIND_ADDRESS: 0.0.0.0
+      TZ: Europe/Istanbul
+    ports:
+      - "80:8791"
+    secrets:
+      - scanner_env
+    volumes:
+      - type: bind
+        source: ${QUANTSCOPE_DATA_DIR:-/opt/quantscope/data}
+        target: /data
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /app/.wrangler:size=128m,mode=1777
+      - /app/node_modules/.mf:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "5", "http://127.0.0.1:8791/api/scanner"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 90s
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+secrets:
+  scanner_env:
+    file: ${QUANTSCOPE_SECRET_FILE:-/opt/quantscope/secrets/scanner.env}

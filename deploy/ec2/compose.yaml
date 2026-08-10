@@ -19,6 +19,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
+      - /app/.wrangler:size=128m,mode=1777
+      - /app/node_modules/.mf:size=128m,mode=1777
     cap_drop:
       - ALL
     security_opt:
