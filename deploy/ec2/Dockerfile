@@ -1,9 +1,11 @@
-FROM node:22.19.0-bookworm-slim AS build
+FROM node:22.19.0-bookworm-slim AS deps
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci
+
+FROM deps AS build
 
 COPY . .
 RUN mkdir -p .openai
@@ -21,8 +23,8 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=build --chown=quantscope:quantscope /app/dist ./dist
-COPY --from=build --chown=quantscope:quantscope /app/node_modules ./node_modules
-COPY --from=build --chown=quantscope:quantscope /app/package.json ./package.json
+COPY --from=deps --chown=quantscope:quantscope /app/node_modules ./node_modules
+COPY --from=deps --chown=quantscope:quantscope /app/package.json ./package.json
 COPY --from=build --chown=quantscope:quantscope /app/deploy/ec2/scanner-worker.jsonc ./.scanner-worker.jsonc
 COPY --from=build --chown=quantscope:quantscope /app/deploy/ec2/scanner-entrypoint.sh /usr/local/bin/quantscope-scanner
 COPY --from=build --chown=quantscope:quantscope /app/deploy/ec2/web-entrypoint.sh /usr/local/bin/quantscope-web

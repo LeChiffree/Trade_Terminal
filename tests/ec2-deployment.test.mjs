@@ -23,6 +23,11 @@ test("packages an EC2 scanner without publishing its private listener", async ()
   const worker = JSON.parse(workerText);
 
   assert.match(dockerfile, /USER quantscope/);
+  assert.match(dockerfile, /AS deps/);
+  assert.match(
+    dockerfile,
+    /COPY --from=deps --chown=quantscope:quantscope \/app\/node_modules/,
+  );
   assert.match(compose, /read_only: true/);
   assert.match(compose, /no-new-privileges:true/);
   assert.doesNotMatch(compose, /^\s*ports:/m);

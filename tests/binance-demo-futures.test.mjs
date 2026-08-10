@@ -31,6 +31,7 @@ test("hard-locks order routing to Binance Futures Demo", async (context) => {
   const loaded = await loadModule();
   context.after(loaded.cleanup);
 
+  assert.equal(loaded.module.BINANCE_DEMO_REQUEST_TIMEOUT_MS, 8_000);
   assert.equal(
     loaded.module.assertBinanceDemoBaseUrl("https://demo-fapi.binance.com"),
     "https://demo-fapi.binance.com",

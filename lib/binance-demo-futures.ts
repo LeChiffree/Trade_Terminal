@@ -1,5 +1,6 @@
 export const BINANCE_FUTURES_DEMO_BASE_URL =
   "https://demo-fapi.binance.com";
+export const BINANCE_DEMO_REQUEST_TIMEOUT_MS = 8_000;
 
 export type BinanceDemoFuturesEnv = {
   BINANCE_API_KEY?: string;
@@ -259,10 +260,28 @@ class BinanceDemoClient {
       );
     }
     const url = `${this.config.baseUrl}${path}${query.size ? `?${query}` : ""}`;
-    const response = await fetch(url, {
-      method,
-      headers: { "X-MBX-APIKEY": this.config.apiKey },
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      BINANCE_DEMO_REQUEST_TIMEOUT_MS,
+    );
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: { "X-MBX-APIKEY": this.config.apiKey },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new BinanceApiError(
+          "Binance Demo request timed out after 8 seconds.",
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
     const payload = await response.json().catch(() => null) as
       | (T & { code?: number; msg?: string })
       | null;
