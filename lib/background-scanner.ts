@@ -35,10 +35,18 @@ export type ScannerEnv = BinanceDemoFuturesEnv & {
   DB?: D1Database;
   SCANNER_TRIGGER_KEY?: string;
   SCANNER_SINGLE_TICK?: string;
+  SCANNER_CONCURRENCY?: string;
   FASTACT_EMAIL_SENDER?: string;
   FASTACT_EMAIL_APP_PASSWORD?: string;
   FASTACT_EMAIL_RECIPIENT?: string;
 };
+
+function scannerConcurrency(env: ScannerEnv, singleTick: boolean) {
+  if (!singleTick) return 6;
+  const configured = Number.parseInt(String(env.SCANNER_CONCURRENCY ?? ""), 10);
+  if (!Number.isFinite(configured)) return EC2_SCANNER_CONCURRENCY;
+  return Math.min(EC2_SCANNER_CONCURRENCY, Math.max(2, configured));
+}
 
 type ScannerConfig = {
   enabled: number;
@@ -704,7 +712,7 @@ async function scanDueIntervals(
   );
   const results = await mapWithConcurrency(
     tasks,
-    singleTick ? EC2_SCANNER_CONCURRENCY : 6,
+    scannerConcurrency(env, singleTick),
     async (task) =>
     await scanSymbolInterval(
       task.symbol,
