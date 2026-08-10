@@ -39,6 +39,10 @@ test("renders the QuantScope application shell and production metadata", async (
 
 test("packages the persistent scheduled scanner", async () => {
   const worker = await loadWorker();
+  const workerSource = await readFile(
+    new URL("../worker/index.ts", import.meta.url),
+    "utf8",
+  );
   const wrangler = JSON.parse(
     await readFile(new URL("../dist/server/wrangler.json", import.meta.url), "utf8"),
   );
@@ -51,6 +55,8 @@ test("packages the persistent scheduled scanner", async () => {
   assert.equal(wrangler.limits.subrequests, 1000);
   assert.equal(hosting.d1, "DB");
   assert.equal(wrangler.d1_databases[0].binding, "DB");
+  assert.match(workerSource, /SCANNER_SINGLE_TICK/);
+  assert.match(workerSource, /managed-by-sites/);
   const paperMigration = await readFile(
     new URL("../dist/.openai/drizzle/0002_paper_trading.sql", import.meta.url),
     "utf8",

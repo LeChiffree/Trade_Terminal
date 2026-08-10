@@ -57,15 +57,23 @@ const worker = {
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const scheduledMinute = Math.floor(Date.now() / 60_000) * 60_000;
+    const ec2SingleTick = ["1", "true", "yes", "on"].includes(
+      String(env.SCANNER_SINGLE_TICK ?? "").trim().toLowerCase(),
+    );
     const [scannerResult, bistPaperResult] = await Promise.allSettled([
       runScheduledScannerMinute(
         env,
         scheduledMinute,
         async (delayMs) => await scheduler.wait(delayMs),
       ),
-      env.DB
+      env.DB && !ec2SingleTick
         ? runBistPaperTradingCycleIfDue(env.DB, Date.now())
-        : Promise.resolve({ skipped: true, reason: "database-not-configured" }),
+        : Promise.resolve({
+            skipped: true,
+            reason: ec2SingleTick
+              ? "managed-by-sites"
+              : "database-not-configured",
+          }),
     ]);
     if (bistPaperResult.status === "rejected") {
       console.error("Scheduled BIST paper trade failed", bistPaperResult.reason);
