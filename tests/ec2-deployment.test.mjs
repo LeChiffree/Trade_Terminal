@@ -9,6 +9,7 @@ const files = {
   entrypoint: new URL("../deploy/ec2/scanner-entrypoint.sh", import.meta.url),
   worker: new URL("../deploy/ec2/scanner-worker.jsonc", import.meta.url),
   secrets: new URL("../deploy/ec2/scanner.env.example", import.meta.url),
+  secretInstaller: new URL("../deploy/ec2/install-scanner-secret.sh", import.meta.url),
   dockerignore: new URL("../.dockerignore", import.meta.url),
 };
 
@@ -72,4 +73,13 @@ test("keeps EC2 credentials outside the image and tracked configuration", async 
   assert.match(dockerignore, /^\.env\.\*$/m);
   assert.match(dockerignore, /^\.scanner-service\.ps1$/m);
   assert.match(dockerignore, /^\.wrangler$/m);
+});
+
+test("installs only demo-scanner secrets and removes transport uploads", async () => {
+  const installer = await readFile(files.secretInstaller, "utf8");
+
+  assert.match(installer, /BINANCE_FUTURES_BASE_URL.*demo-fapi\.binance\.com/s);
+  assert.match(installer, /install -m 0600 -o root -g root/);
+  assert.match(installer, /rm -f "\$source_env" "\$source_service"/);
+  assert.doesNotMatch(installer, /GEMINI_API_KEY/);
 });

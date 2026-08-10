@@ -35,6 +35,11 @@ The order mirror is hard-locked to `https://demo-fapi.binance.com`. Set
 choose the virtual isolated margin per trade with
 `BINANCE_FUTURES_MARGIN_USDT`. Production Futures hosts are rejected.
 
+For an assisted Windows-to-EC2 migration, upload the ignored `.env.local` and
+`.scanner-service.ps1` files to the operator's private home directory, then run
+`deploy/ec2/install-scanner-secret.sh`. It copies only the required values into
+the root-owned secret file and removes both uploads.
+
 ## Full frontend and scanner start (recommended)
 
 Use one Worker/Miniflare process for both HTTP traffic and scheduled scanner
