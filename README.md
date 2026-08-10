@@ -1,6 +1,6 @@
-# QuantScope Trade Terminal
+# Trade Terminal
 
-QuantScope; Binance spot verisini, açıklanabilir teknik indikatörleri ve bağımsız Gemini değerlendirmesini tek ekranda birleştiren Türkçe bir trade analiz terminalidir.
+Trade Terminal; Binance spot verisini, açıklanabilir teknik indikatörleri ve bağımsız Gemini değerlendirmesini tek ekranda birleştiren Türkçe bir trade analiz terminalidir.
 
 > Finansal tavsiye değildir. Üretilen skorlar ve model yorumları karar desteği içindir.
 

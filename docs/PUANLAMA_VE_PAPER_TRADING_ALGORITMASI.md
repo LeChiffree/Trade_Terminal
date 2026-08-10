@@ -1,4 +1,4 @@
-# QuantScope Puanlama ve Paper Trading Algoritması
+# Trade Terminal Puanlama ve Paper Trading Algoritması
 
 > Bu doküman, uygulamanın mevcut kodundaki gerçek davranışı açıklar.  
 > Referans tarih: 7 Ağustos 2026.
@@ -254,7 +254,7 @@ Gemini yalnızca kullanıcı analiz ekranındaki düğmeye bastığında çağr�
 | İşlem başına marjin | 1.000 TL |
 | Kaldıraç | 5x |
 | İşlem başına nominal büyüklük | 5.000 TL |
-| Maksimum açık pozisyon | 10 |
+| Maksimum açık pozisyon | 20 |
 | Giriş puanı | `|finalScore| ≥ 30` |
 | Minimum güven | `%70` |
 | Çıkış/nötr bölge | `|finalScore| ≤ 15` |
@@ -270,7 +270,7 @@ Gemini yalnızca kullanıcı analiz ekranındaki düğmeye bastığında çağr�
 4. `|finalScore| ≥ 30` ve `confidence ≥ 70` olmalıdır.
 5. Her coinde yalnızca bir pozisyon açılır. Böylece o coinin sıralamada ilk gelen, yani en güçlü frame’i seçilmiş olur.
 6. Aynı döngüde kapanan coin tekrar açılmaz.
-7. Açık pozisyon sayısı 10’a ulaştığında yeni işlem açılmaz.
+7. Açık pozisyon sayısı 20’ye ulaştığında yeni işlem açılmaz.
 8. Binance Futures mark fiyatı yoksa işlem açılmaz.
 9. Kasa, marjin + giriş komisyonu + giriş kaymasını karşılamıyorsa işlem açılmaz.
 
@@ -376,58 +376,39 @@ Yön değişirse normal 4 saatlik bekleme dolmadan yeni alarm üretilebilir. Ayn
 
 ### 8.2. BIST teknik skor formülü
 
-Başlangıç:
+Eski formüldeki ikili `+8/+10/+6` bonusları çok sayıda hisseyi aynı
+`+76/+79` puanlarında topladığı için kaldırılmıştır. Güncel skor, tüm girdileri
+`-1 … +1` aralığına sürekli olarak normalize eder:
 
-```text
-score = TradingView Recommend.All × 55
-```
+| Bileşen | Ağırlık | Normalizasyon |
+|---|---:|---|
+| TradingView Recommend.All | %34 | Doğrudan `-1 … +1` |
+| Fiyat / EMA20 uzaklığı | %14 | `%4` uzaklıkta tam ağırlık |
+| EMA20 / EMA50 uzaklığı | %12 | `%5` uzaklıkta tam ağırlık |
+| EMA50 / SMA200 uzaklığı | %10 | `%9` uzaklıkta tam ağırlık |
+| RSI | %10 | `(RSI - 50) / 22` |
+| MACD − Signal | %14 | Fiyatın `%0,8`’ine normalize edilir |
+| Frame fiyat değişimi | %6 | `%3,5` değişimde tam ağırlık |
 
-Üzerine eklenen yerel kurallar:
-
-| Koşul | Puan |
-|---|---:|
-| Fiyat ≥ EMA20 | +8 |
-| Fiyat < EMA20 | -8 |
-| EMA20 ≥ EMA50 | +8 |
-| EMA20 < EMA50 | -8 |
-| EMA50 ≥ SMA200 | +6 |
-| EMA50 < SMA200 | -6 |
-| RSI 55–70 | +8 |
-| RSI 30–45 | -8 |
-| RSI > 75 | -2 |
-| RSI < 25 | +2 |
-| MACD ≥ MACD Signal | +10 |
-| MACD < MACD Signal | -10 |
-| Günlük/frame değişimi > `%0,5` | +3 |
-| Günlük/frame değişimi < `-%0,5` | -3 |
-
-Sonuç yuvarlanır ve `-100 … +100` aralığına sıkıştırılır.
+Her bileşenin normalize değeri ağırlığıyla çarpılır; toplam yuvarlanır ve
+`-100 … +100` aralığına sıkıştırılır. Böylece küçük teknik farklar farklı puan
+üretir ve tek bir tarayıcı özeti sonucu domine etmez.
 
 ### 8.3. BIST güven puanı
 
-Kullanılabilir ana veri sayısı:
-
-- Recommend.All,
-- RSI,
-- MACD,
-- MACD Signal,
-- EMA20,
-- EMA50,
-- SMA200.
-
-Yön uyumu ise şu dört girdinin çoğunluk oranıdır:
-
-- Recommend.All yönü,
-- Fiyat − EMA20 yönü,
-- EMA20 − EMA50 yönü,
-- MACD − MACD Signal yönü.
+Güven puanı veri kapsamını, aktif bileşenlerdeki yön uyumunu ve toplam skor
+gücünü birlikte kullanır. Yön uyumu, pozitif ve negatif kanıtların ağırlıklı
+büyüklüklerine göre hesaplanır; yalnızca işaret sayısı değildir.
 
 ```text
 confidence =
   clamp(
-    35 + kullanılabilirVeriSayısı × 6 + yönUyumu × 18,
+    24
+    + veriKapsamı × 24
+    + yönUyumu × 22
+    + min(60, |hamSkor|) × 0,32,
     0,
-    95
+    92
   )
 ```
 
@@ -449,7 +430,7 @@ BIST yön etiketi:
 | İşlem başına sermaye | 1.000 TL |
 | Kaldıraç | 1x |
 | Yön | Yalnızca long |
-| Maksimum açık pozisyon | 10 |
+| Maksimum açık pozisyon | 15 |
 | Giriş puanı | `score ≥ +30` |
 | Minimum güven | `%70` |
 | Çıkış puanı | `score < +15` |
@@ -463,7 +444,7 @@ BIST yön etiketi:
 3. Puan eşitse güveni daha yüksek frame seçilir.
 4. Hisseler puan azalan, sonra güven azalan sırada dizilir.
 5. `score ≥ +30` ve `confidence ≥ 70` filtresi uygulanır.
-6. En fazla 10 benzersiz hisseye long pozisyon açılır.
+6. En fazla 15 benzersiz hisseye long pozisyon açılır.
 7. Her işlem için 1.000 TL sermaye ayrılır.
 8. Aynı hissede ikinci pozisyon açılmaz.
 9. Aynı döngüde kapanmış hisse tekrar açılmaz.

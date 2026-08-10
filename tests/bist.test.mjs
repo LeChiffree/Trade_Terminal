@@ -1,6 +1,31 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import ts from "typescript";
+
+async function loadBistModule() {
+  const source = await readFile(
+    new URL("../lib/bist.ts", import.meta.url),
+    "utf8",
+  );
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2023,
+    },
+  }).outputText;
+  const directory = await mkdtemp(join(tmpdir(), "quantscope-bist-score-"));
+  const modulePath = join(directory, "bist.mjs");
+  await writeFile(modulePath, transpiled, "utf8");
+  return {
+    module: await import(
+      `${new URL(`file:///${modulePath.replaceAll("\\", "/")}`).href}?${Date.now()}`
+    ),
+    cleanup: () => rm(directory, { recursive: true, force: true }),
+  };
+}
 
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -74,4 +99,49 @@ test("returns 80 unique BIST shares and delayed selected-share candles", async (
   assert.equal(market.source, "bist");
   assert.equal(market.delayedMinutes, 15);
   assert.ok(market.candles.length >= 50);
+});
+
+test("calibrates BIST scores continuously without confidence saturation", async (context) => {
+  const loaded = await loadBistModule();
+  context.after(loaded.cleanup);
+  const score = loaded.module.scoreBistTechnical;
+  const strong = score({
+    recommend: 0.7,
+    rsi: 64,
+    macd: 2,
+    macdSignal: 1.3,
+    close: 106,
+    ema20: 102,
+    ema50: 99,
+    sma200: 92,
+    change: 2.1,
+  });
+  const moderate = score({
+    recommend: 0.55,
+    rsi: 58,
+    macd: 1.2,
+    macdSignal: 1,
+    close: 103,
+    ema20: 101,
+    ema50: 100,
+    sma200: 97,
+    change: 0.8,
+  });
+  const mixed = score({
+    recommend: 0.55,
+    rsi: 44,
+    macd: 0.8,
+    macdSignal: 1,
+    close: 99,
+    ema20: 100,
+    ema50: 101,
+    sma200: 98,
+    change: -0.4,
+  });
+
+  assert.ok(strong.score > moderate.score);
+  assert.ok(moderate.score > mixed.score);
+  assert.equal(new Set([strong.score, moderate.score, mixed.score]).size, 3);
+  assert.ok(strong.confidence <= 92);
+  assert.ok(moderate.confidence < strong.confidence);
 });

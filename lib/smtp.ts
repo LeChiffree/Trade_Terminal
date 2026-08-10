@@ -140,7 +140,7 @@ export async function sendGmailMessage(options: {
 
   const boundary = `quantscope-${crypto.randomUUID()}`;
   const message = [
-    `From: QuantScope <${sender}>`,
+    `From: Trade Terminal <${sender}>`,
     `To: ${recipient}`,
     `Subject: ${encodeHeader(options.subject.replace(/[\r\n]+/g, " ").slice(0, 180))}`,
     `Date: ${new Date().toUTCString()}`,

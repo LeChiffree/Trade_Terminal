@@ -19,9 +19,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase: origin,
-    title: "QuantScope Trade Terminal",
+    title: "Trade Terminal",
     description,
-    applicationName: "QuantScope",
+    applicationName: "Trade Terminal",
     robots: { index: false, follow: false },
     icons: {
       icon: "/favicon.svg",
@@ -30,15 +30,15 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       type: "website",
       locale: "tr_TR",
-      siteName: "QuantScope",
-      title: "QuantScope Trade Terminal",
+      siteName: "Trade Terminal",
+      title: "Trade Terminal",
       description,
       url: origin,
-      images: [{ url: imageUrl, width: 1200, height: 630, alt: "QuantScope Trade Terminal" }],
+      images: [{ url: imageUrl, width: 1200, height: 630, alt: "Trade Terminal" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "QuantScope Trade Terminal",
+      title: "Trade Terminal",
       description,
       images: [imageUrl],
     },

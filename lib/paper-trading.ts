@@ -2,7 +2,7 @@ export const PAPER_DEFAULTS = {
   initialBalance: 100_000,
   marginPerTrade: 1_000,
   leverage: 5,
-  maxPositions: 10,
+  maxPositions: 20,
   entryScore: 30,
   exitScore: 15,
   minimumConfidence: 70,
@@ -85,6 +85,12 @@ type FuturesQuote = {
   nextFundingAt: number;
 };
 
+let futuresQuoteCache: {
+  expiresAt: number;
+  quotes: Map<string, FuturesQuote>;
+} | null = null;
+let futuresQuoteRequest: Promise<Map<string, FuturesQuote>> | null = null;
+
 export type PaperMarkInput = {
   direction: PaperDirection;
   entryPrice: number;
@@ -135,7 +141,7 @@ const PAPER_CREATE_STATEMENTS = [
     cash_balance REAL NOT NULL DEFAULT 100000,
     margin_per_trade REAL NOT NULL DEFAULT 1000,
     leverage INTEGER NOT NULL DEFAULT 5,
-    max_positions INTEGER NOT NULL DEFAULT 10,
+    max_positions INTEGER NOT NULL DEFAULT 20,
     entry_score INTEGER NOT NULL DEFAULT 30,
     exit_score INTEGER NOT NULL DEFAULT 15,
     minimum_confidence INTEGER NOT NULL DEFAULT 70,
@@ -297,34 +303,50 @@ export async function ensurePaperTradingSchema(db: D1Database) {
 }
 
 async function fetchFuturesQuotes() {
-  const response = await fetch(
-    "https://fapi.binance.com/fapi/v1/premiumIndex",
-    {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(7_000),
-      cache: "no-store",
-    },
-  );
-  if (!response.ok) throw new Error(`Binance Futures ${response.status}`);
-  const payload = await response.json();
-  if (!Array.isArray(payload)) {
-    throw new Error("Binance Futures mark fiyatı alınamadı.");
+  const now = Date.now();
+  if (futuresQuoteCache && futuresQuoteCache.expiresAt > now) {
+    return futuresQuoteCache.quotes;
   }
-  const quotes = new Map<string, FuturesQuote>();
-  for (const value of payload) {
-    if (!value || typeof value !== "object") continue;
-    const item = value as Record<string, unknown>;
-    const symbol = String(item.symbol ?? "").toUpperCase();
-    const markPrice = finite(item.markPrice);
-    if (!symbol || markPrice <= 0) continue;
-    quotes.set(symbol, {
-      symbol,
-      markPrice,
-      fundingRate: finite(item.lastFundingRate),
-      nextFundingAt: Math.max(0, Math.trunc(finite(item.nextFundingTime))),
-    });
+  if (futuresQuoteRequest) return await futuresQuoteRequest;
+  futuresQuoteRequest = (async () => {
+    const response = await fetch(
+      "https://fapi.binance.com/fapi/v1/premiumIndex",
+      {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(7_000),
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) throw new Error(`Binance Futures ${response.status}`);
+    const payload = await response.json();
+    if (!Array.isArray(payload)) {
+      throw new Error("Binance Futures mark fiyatı alınamadı.");
+    }
+    const quotes = new Map<string, FuturesQuote>();
+    for (const value of payload) {
+      if (!value || typeof value !== "object") continue;
+      const item = value as Record<string, unknown>;
+      const symbol = String(item.symbol ?? "").toUpperCase();
+      const markPrice = finite(item.markPrice);
+      if (!symbol || markPrice <= 0) continue;
+      quotes.set(symbol, {
+        symbol,
+        markPrice,
+        fundingRate: finite(item.lastFundingRate),
+        nextFundingAt: Math.max(0, Math.trunc(finite(item.nextFundingTime))),
+      });
+    }
+    futuresQuoteCache = {
+      expiresAt: Date.now() + 10_000,
+      quotes,
+    };
+    return quotes;
+  })();
+  try {
+    return await futuresQuoteRequest;
+  } finally {
+    futuresQuoteRequest = null;
   }
-  return quotes;
 }
 
 function liquidationPrice(
@@ -537,7 +559,13 @@ export async function runPaperTradingCycle(db: D1Database, now = Date.now()) {
   }
 
   const openSymbols = new Set(stillOpen.map((position) => position.symbol));
-  const candidates = scores.filter(
+  const bestScoreBySymbol = new Map<string, PaperScoreRow>();
+  for (const score of scores) {
+    if (!bestScoreBySymbol.has(score.symbol)) {
+      bestScoreBySymbol.set(score.symbol, score);
+    }
+  }
+  const candidates = [...bestScoreBySymbol.values()].filter(
     (score) =>
       (score.direction === "long" || score.direction === "short") &&
       Math.abs(score.final_score) >= account.entry_score &&

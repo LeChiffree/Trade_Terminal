@@ -496,7 +496,7 @@ function makeSignalEmail(result: ScanResult) {
   const sideTr = result.direction === "long" ? "long" : "short";
   const horizon = timeframe?.horizon ?? `${result.interval} zaman diliminde`;
   const subject = `[${side} FIRSATI] ${result.baseAsset} ${horizon} · ${signed(result.finalScore)}`;
-  const opening = `${result.baseAsset}'de ${horizon} ${sideTr} fırsatı yüksek. QuantScope puanı ${signed(result.finalScore)}/100, güven %${result.confidence}.`;
+  const opening = `${result.baseAsset}'de ${horizon} ${sideTr} fırsatı yüksek. Teknik puan ${signed(result.finalScore)}/100, güven %${result.confidence}.`;
   const facts = [
     `Parite: ${result.symbol}`,
     `Zaman dilimi: ${result.interval}`,

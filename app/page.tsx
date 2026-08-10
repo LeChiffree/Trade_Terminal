@@ -33,8 +33,6 @@ type NavKey =
   | "Paper Trade"
   | "BIST 80"
   | "BIST Paper"
-  | "Alarmlar"
-  | "Geçmiş"
   | "Ayarlar";
 
 type LlmReview = {
@@ -50,29 +48,6 @@ type LlmReview = {
   summary_tr: string;
   provider: string;
   configured: boolean;
-};
-
-type AlertRule = {
-  id: string;
-  symbol: string;
-  interval: string;
-  direction: "above" | "below";
-  threshold: number;
-  active: boolean;
-  createdAt: number;
-  lastTriggered?: number;
-};
-
-type SignalLog = {
-  id: string;
-  timestamp: number;
-  symbol: string;
-  interval: string;
-  quantScore: number;
-  llmScore: number | null;
-  finalScore: number;
-  direction: string;
-  approval: string;
 };
 
 type SymbolOption = {
@@ -134,8 +109,6 @@ const NAV: { label: NavKey; glyph: string }[] = [
   { label: "Paper Trade", glyph: "₺" },
   { label: "BIST 80", glyph: "B" },
   { label: "BIST Paper", glyph: "P" },
-  { label: "Alarmlar", glyph: "◉" },
-  { label: "Geçmiş", glyph: "↻" },
   { label: "Ayarlar", glyph: "⚙" },
 ];
 
@@ -179,59 +152,6 @@ function scoreTone(score: number) {
 
 function signedScore(score: number) {
   return `${score > 0 ? "+" : ""}${score}`;
-}
-
-function makeId() {
-  if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function restoreAlerts(value: string | null): AlertRule[] {
-  const parsed: unknown = JSON.parse(value ?? "[]");
-  if (!Array.isArray(parsed)) return [];
-  return parsed.slice(0, 100).flatMap((item): AlertRule[] => {
-    if (!isRecord(item)) return [];
-    const direction = item.direction === "above" || item.direction === "below" ? item.direction : null;
-    const threshold = Number(item.threshold);
-    if (!direction || !Number.isFinite(threshold) || threshold <= 0) return [];
-    return [{
-      id: String(item.id || makeId()).slice(0, 100),
-      symbol: String(item.symbol || "BTCUSDT").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20),
-      interval: TIMEFRAMES.includes(String(item.interval)) ? String(item.interval) : "15m",
-      direction,
-      threshold,
-      active: Boolean(item.active),
-      createdAt: Number.isFinite(Number(item.createdAt)) ? Number(item.createdAt) : Date.now(),
-      lastTriggered: Number.isFinite(Number(item.lastTriggered)) ? Number(item.lastTriggered) : undefined,
-    }];
-  });
-}
-
-function restoreLogs(value: string | null): SignalLog[] {
-  const parsed: unknown = JSON.parse(value ?? "[]");
-  if (!Array.isArray(parsed)) return [];
-  return parsed.slice(0, 100).flatMap((item): SignalLog[] => {
-    if (!isRecord(item)) return [];
-    const quantScore = Number(item.quantScore);
-    const finalScore = Number(item.finalScore);
-    if (!Number.isFinite(quantScore) || !Number.isFinite(finalScore)) return [];
-    const llmScore = item.llmScore === null ? null : Number(item.llmScore);
-    return [{
-      id: String(item.id || makeId()).slice(0, 100),
-      timestamp: Number.isFinite(Number(item.timestamp)) ? Number(item.timestamp) : Date.now(),
-      symbol: String(item.symbol || "BTCUSDT").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20),
-      interval: TIMEFRAMES.includes(String(item.interval)) ? String(item.interval) : "15m",
-      quantScore,
-      llmScore: llmScore === null || !Number.isFinite(llmScore) ? null : llmScore,
-      finalScore,
-      direction: String(item.direction || scoreLabel(finalScore)).slice(0, 40),
-      approval: String(item.approval || "uncertain").slice(0, 40),
-    }];
-  });
 }
 
 function CandleChart({ candles, price, symbol, interval, loading }: { candles: Candle[]; price: number; symbol: string; interval: string; loading: boolean }) {
@@ -567,7 +487,7 @@ function PaperPositionTable({
           ? (position.net_pnl / position.margin) * 100
           : 0;
         return (
-          <div className="paper-row" key={position.id}>
+          <div className={`paper-row trade-row ${position.direction}`} key={position.id}>
             <span>
               <b>{position.base_asset}/USDT</b>
               <small>{position.interval} · #{position.id}</small>
@@ -642,7 +562,7 @@ function PaperTradeView({
       <section className="panel module-panel paper-hero">
         <div>
           <span className="eyebrow">OTOMATİK 5X PAPER PORTFÖY</span>
-          <h2>En güçlü 5 fırsat, gerçek Binance Futures maliyet modeli</h2>
+          <h2>En güçlü 20 fırsat, gerçek Binance Futures maliyet modeli</h2>
           <p>
             Stablecoin hariç 50 paritenin tüm zaman dilimleri karşılaştırılır.
             Aynı coinin en güçlü frame’i seçilir; puan nötrleşince işlem kapanır.
@@ -672,7 +592,7 @@ function PaperTradeView({
         </article>
         <article className="panel">
           <small>Açık işlem</small>
-          <strong>{metrics?.openPositions ?? 0} / {account?.max_positions ?? 10}</strong>
+          <strong>{metrics?.openPositions ?? 0} / {account?.max_positions ?? 20}</strong>
           <span>{tryValue(metrics?.reservedMargin ?? 0)} bağlı marjin</span>
         </article>
         <article className="panel">
@@ -745,7 +665,7 @@ function PaperTradeView({
         <span>MODEL</span>
         <p>
           Giriş: en yüksek mutlak final puanlı, güveni en az %
-          {account?.minimum_confidence ?? 70} olan 10 benzersiz parite ve minimum
+          {account?.minimum_confidence ?? 70} olan 20 benzersiz parite ve minimum
           ±{account?.entry_score ?? 30} puan. Çıkış: puan ±
           {account?.exit_score ?? 15} nötr bölgesine dönerse, yön tersine
           dönerse veya izole tasfiye seviyesine ulaşırsa. Hesap; çift taraflı
@@ -754,62 +674,6 @@ function PaperTradeView({
         </p>
       </section>
     </>
-  );
-}
-
-function AlertsView({ alerts, setAlerts, market, gmailConfigured }: { alerts: AlertRule[]; setAlerts: (alerts: AlertRule[]) => void; market: MarketPayload; gmailConfigured: boolean }) {
-  const [direction, setDirection] = useState<"above" | "below">("above");
-  const [threshold, setThreshold] = useState(String(Math.round(market.ticker.lastPrice)));
-  const addAlert = () => {
-    const value = Number(threshold);
-    if (!Number.isFinite(value) || value <= 0) return;
-    setAlerts([{ id: makeId(), symbol: market.symbol, interval: market.interval, direction, threshold: value, active: true, createdAt: Date.now() }, ...alerts]);
-  };
-  const remove = (id: string) => setAlerts(alerts.filter((alert) => alert.id !== id));
-  const toggle = (id: string) => setAlerts(alerts.map((alert) =>
-    alert.id === id
-      ? { ...alert, active: !alert.active, lastTriggered: alert.active ? alert.lastTriggered : undefined }
-      : alert
-  ));
-  return (
-    <div className="module-grid">
-      <section className="panel module-panel alert-builder">
-        <div className="panel-head"><div><span className="eyebrow">YENİ KURAL</span><h2>Fiyat alarmı oluştur</h2></div><span className={gmailConfigured ? "integration-ok" : "integration-warn"}>{gmailConfigured ? "Gmail bağlı" : "E-posta bekliyor"}</span></div>
-        <label>Parite<input value={market.symbol} disabled /></label>
-        <label>Zaman dilimi<input value={market.interval} disabled /></label>
-        <label>Koşul<select value={direction} onChange={(event) => setDirection(event.target.value as "above" | "below")}><option value="above">Fiyat seviyenin üstüne çıkarsa</option><option value="below">Fiyat seviyenin altına inerse</option></select></label>
-        <label>Fiyat seviyesi<input type="number" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label>
-        <div className="builder-preview">IF <b>{market.symbol}</b> {direction === "above" ? ">" : "<"} <b>{formatPrice(Number(threshold))}</b> THEN <b>uygulama + Gmail</b></div>
-        <button className="primary-button large" onClick={addAlert}>Alarmı kaydet</button>
-        <p className="helper">Fiyat kuralları bu cihazda saklanır. Güçlü teknik fırsatlar için ayrı 24/7 sunucu tarayıcısı otomatik çalışır ve Gmail bildirimi gönderir.</p>
-      </section>
-      <section className="panel module-panel">
-        <div className="panel-head"><div><span className="eyebrow">AKTİF ALARMLAR</span><h2>{alerts.length} kayıtlı kural</h2></div></div>
-        <div className="alert-list">
-          {!alerts.length && <div className="empty-state"><span>◉</span><b>Henüz alarm yok</b><p>Soldaki kural editöründen ilk alarmını oluştur.</p></div>}
-          {alerts.map((alert) => {
-            const distance = market.ticker.lastPrice ? ((alert.threshold / market.ticker.lastPrice) - 1) * 100 : 0;
-            return <article key={alert.id} className={!alert.active ? "disabled" : ""}><div><span className={`rule-icon ${alert.direction}`}>{alert.direction === "above" ? "↑" : "↓"}</span><div><b>{alert.symbol} {alert.direction === "above" ? ">" : "<"} {formatPrice(alert.threshold)}</b><small>{alert.interval} · Seviyeye {distance >= 0 ? "+" : ""}{priceFormatter.format(distance)}%</small></div></div><div className="rule-actions"><button onClick={() => toggle(alert.id)}>{alert.active ? "Aktif" : "Kapalı"}</button><button onClick={() => remove(alert.id)}>Sil</button></div></article>;
-          })}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function HistoryView({ logs }: { logs: SignalLog[] }) {
-  return (
-    <section className="panel module-panel">
-      <div className="panel-head"><div><span className="eyebrow">SİNYAL JOURNAL</span><h2>Quant–LLM karar geçmişi</h2></div><span className="data-note">Triple Barrier etiketi sonraki sürüm</span></div>
-      <div className="history-grid">
-        <div className="history-kpi"><small>Toplam inceleme</small><strong>{logs.length}</strong></div><div className="history-kpi"><small>LLM onaylı</small><strong>{logs.filter((log) => log.approval.includes("approve")).length}</strong></div><div className="history-kpi"><small>Çelişki</small><strong>{logs.filter((log) => log.approval === "reject").length}</strong></div><div className="history-kpi"><small>Sonuç bekliyor</small><strong>{logs.length}</strong></div>
-      </div>
-      <div className="history-table">
-        <div className="history-row history-head"><span>Zaman</span><span>Parite</span><span>Quant</span><span>LLM</span><span>Final</span><span>Karar</span><span>Onay</span></div>
-        {!logs.length && <div className="empty-inline">İlk LLM değerlendirmesini çalıştırdığında burada görünecek.</div>}
-        {logs.map((log) => <div className="history-row" key={log.id}><span>{new Date(log.timestamp).toLocaleString("tr-TR")}</span><span><b>{log.symbol}</b><small>{log.interval}</small></span><span className={scoreTone(log.quantScore)}>{log.quantScore > 0 ? "+" : ""}{log.quantScore}</span><span>{log.llmScore === null ? "—" : `${log.llmScore > 0 ? "+" : ""}${log.llmScore}`}</span><span className={scoreTone(log.finalScore)}>{log.finalScore > 0 ? "+" : ""}{log.finalScore}</span><span>{log.direction}</span><span>{log.approval}</span></div>)}
-      </div>
-    </section>
   );
 }
 
@@ -838,8 +702,6 @@ export default function Home() {
   const [llmStatus, setLlmStatus] = useState<{ configured: boolean; provider?: string; model?: string | null }>({ configured: false });
   const [gmailStatus, setGmailStatus] = useState<{ configured: boolean }>({ configured: false });
   const [gmailMessage, setGmailMessage] = useState("");
-  const [alerts, setAlertsState] = useState<AlertRule[]>([]);
-  const [logs, setLogsState] = useState<SignalLog[]>([]);
   const [symbolOptions, setSymbolOptions] = useState<SymbolOption[]>(FALLBACK_SYMBOLS);
   const [symbolsLoading, setSymbolsLoading] = useState(true);
   const [marketContext, setMarketContext] = useState<MarketContextPayload | null>(null);
@@ -853,30 +715,12 @@ export default function Home() {
   const currentContextKey = `${market.symbol}-${market.interval}-${lastCandleOpenTime ?? 0}-${marketContext?.updatedAt ?? 0}`;
   const displayedLlm = llmContextKey === currentContextKey ? llm : null;
 
-  const persistAlerts = useCallback((next: AlertRule[]) => {
-    setAlertsState(next);
-    localStorage.setItem("quantscope-alerts", JSON.stringify(next));
-  }, []);
-  const persistLog = useCallback((entry: SignalLog) => {
-    setLogsState((current) => {
-      const next = [entry, ...current].slice(0, 100);
-      localStorage.setItem("quantscope-signals", JSON.stringify(next));
-      return next;
-    });
-  }, []);
-
   useEffect(() => {
     latestMarketRef.current = market;
   }, [market]);
 
   useEffect(() => {
     let disposed = false;
-    const restoreTimer = window.setTimeout(() => {
-      try {
-        setAlertsState(restoreAlerts(localStorage.getItem("quantscope-alerts")));
-        setLogsState(restoreLogs(localStorage.getItem("quantscope-signals")));
-      } catch { /* device-local state can safely reset */ }
-    }, 0);
     Promise.all([
       fetch("/api/llm-review").then(async (response) =>
         await response.json() as { configured: boolean; provider?: string; model?: string | null }
@@ -911,7 +755,6 @@ export default function Home() {
     void loadSymbols();
     return () => {
       disposed = true;
-      window.clearTimeout(restoreTimer);
     };
   }, []);
 
@@ -1095,51 +938,13 @@ export default function Home() {
       const review = await response.json() as LlmReview;
       setLlm(review);
       setLlmContextKey(currentContextKey);
-      const contextScore = decisionContextScore(marketContext, analysis.symbol);
-      const finalScore = blendDecisionScores(analysis.quantScore, contextScore, review.configured ? review.direction_score : null);
-      const entry: SignalLog = { id: makeId(), timestamp: Date.now(), symbol: analysis.symbol, interval: analysis.interval, quantScore: analysis.quantScore, llmScore: review.configured ? review.direction_score : null, finalScore, direction: scoreLabel(finalScore), approval: review.approval };
-      persistLog(entry);
     } catch {
       setLlm(null);
       setLlmContextKey("");
     } finally {
       setLlmLoading(false);
     }
-  }, [analysis, currentContextKey, market.source, market.fetchedAt, marketContext, persistLog, streamStatus]);
-
-  useEffect(() => {
-    if (
-      market.source !== "binance" ||
-      streamStatus !== "live" ||
-      Date.now() - market.fetchedAt > 10_000
-    ) return;
-    const now = Date.now();
-    let changed = false;
-    const next = alerts.map((alert) => {
-      if (!alert.active || alert.symbol !== market.symbol || alert.lastTriggered) return alert;
-      const hit = alert.direction === "above" ? market.ticker.lastPrice >= alert.threshold : market.ticker.lastPrice <= alert.threshold;
-      if (!hit) return alert;
-      changed = true;
-      if (gmailStatus.configured) {
-        fetch("/api/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "alert",
-            symbol: alert.symbol,
-            interval: alert.interval,
-            direction: analysis.direction,
-            lastPrice: market.ticker.lastPrice,
-            threshold: alert.threshold,
-            quantScore: analysis.quantScore,
-            confidence: analysis.confidence,
-          }),
-        }).catch(() => undefined);
-      }
-      return { ...alert, lastTriggered: now, active: false };
-    });
-    if (changed) window.setTimeout(() => persistAlerts(next), 0);
-  }, [market.ticker.lastPrice, market.symbol, market.source, market.fetchedAt, alerts, analysis, gmailStatus.configured, persistAlerts, streamStatus]);
+  }, [analysis, currentContextKey, market.source, market.fetchedAt, marketContext, streamStatus]);
 
   const testGmail = async () => {
     setGmailMessage("Gönderiliyor…");
@@ -1192,7 +997,7 @@ export default function Home() {
   return (
     <main className="app-frame">
       <aside className="side-rail">
-        <div className="brand-mark"><span>Q</span><b>QuantScope</b></div>
+        <div className="brand-mark" aria-label="Trade Terminal"><span>Q</span></div>
         <nav aria-label="Ana navigasyon">{NAV.map((item) => <button key={item.label} className={activeNav === item.label ? "active" : ""} onClick={() => setActiveNav(item.label)}><span>{item.glyph}</span>{item.label}</button>)}</nav>
         <div className="rail-foot"><div className="status-dot"><i className={liveDataReady ? "" : "demo"} /> {streamLabel}</div><div className="user-badge"><span>HA</span><div><b>Hikmet</b><small>Owner workspace</small></div></div></div>
       </aside>
@@ -1200,7 +1005,7 @@ export default function Home() {
       <section className="workspace">
         <header className="topbar">
           <div><small>CANLI TEKNİK KARAR TERMİNALİ</small><h1>{activeNav}</h1></div>
-          <div className="top-actions"><div className={`freshness ${activeNav === "BIST 80" || activeNav === "BIST Paper" ? "bist-mode" : liveDataReady ? "" : "offline"}`}><i /> {activeNav === "BIST 80" || activeNav === "BIST Paper" ? "BIST GECİKMELİ" : loading ? "YÜKLENİYOR" : liveDataReady ? "WS CANLI" : "AKIŞ BEKLENİYOR"} <span>{activeNav === "BIST 80" || activeNav === "BIST Paper" ? "• ≥15 dk" : `• ${freshness} sn önce`}</span></div><button className="icon-button" aria-label="Bildirimler">◌<em>{alerts.filter((alert) => alert.active).length}</em></button>{activeNav !== "BIST 80" && activeNav !== "BIST Paper" && activeNav !== "Paper Trade" && <button className="primary-button" onClick={() => setActiveNav("Alarmlar")}>＋ Yeni alarm</button>}</div>
+          <div className="top-actions"><div className={`freshness ${activeNav === "BIST 80" || activeNav === "BIST Paper" ? "bist-mode" : liveDataReady ? "" : "offline"}`}><i /> {activeNav === "BIST 80" || activeNav === "BIST Paper" ? "BIST GECİKMELİ" : loading ? "YÜKLENİYOR" : liveDataReady ? "WS CANLI" : "AKIŞ BEKLENİYOR"} <span>{activeNav === "BIST 80" || activeNav === "BIST Paper" ? "• ≥15 dk" : `• ${freshness} sn önce`}</span></div></div>
         </header>
 
         {activeNav !== "Paper Trade" && activeNav !== "BIST 80" && activeNav !== "BIST Paper" && <><div className="symbol-row">
@@ -1218,8 +1023,6 @@ export default function Home() {
         {activeNav === "Paper Trade" && <PaperTradeView status={scannerStatus} now={freshnessNow} />}
         {activeNav === "BIST 80" && <BistTerminal />}
         {activeNav === "BIST Paper" && <BistPaper now={freshnessNow} />}
-        {activeNav === "Alarmlar" && <AlertsView key={`${market.symbol}-${market.interval}`} alerts={alerts} setAlerts={persistAlerts} market={market} gmailConfigured={gmailStatus.configured} />}
-        {activeNav === "Geçmiş" && <HistoryView logs={logs} />}
         {activeNav === "Ayarlar" && <SettingsView llmStatus={llmStatus} gmailStatus={gmailStatus} onTestGmail={testGmail} gmailMessage={gmailMessage} />}
       </section>
     </main>

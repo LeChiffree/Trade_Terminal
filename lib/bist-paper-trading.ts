@@ -13,7 +13,7 @@ import {
 export const BIST_PAPER_DEFAULTS = {
   initialBalance: 100_000,
   capitalPerTrade: 1_000,
-  maxPositions: 10,
+  maxPositions: 15,
   entryScore: 30,
   exitScore: 15,
   minimumConfidence: 70,
@@ -100,7 +100,7 @@ const CREATE_STATEMENTS = [
     initial_balance REAL NOT NULL DEFAULT 100000,
     cash_balance REAL NOT NULL DEFAULT 100000,
     capital_per_trade REAL NOT NULL DEFAULT 1000,
-    max_positions INTEGER NOT NULL DEFAULT 10,
+    max_positions INTEGER NOT NULL DEFAULT 15,
     entry_score INTEGER NOT NULL DEFAULT 30,
     exit_score INTEGER NOT NULL DEFAULT 15,
     minimum_confidence INTEGER NOT NULL DEFAULT 70,
@@ -171,6 +171,18 @@ export async function ensureBistPaperTradingSchema(db: D1Database) {
       BIST_PAPER_DEFAULTS.commissionRate,
       BIST_PAPER_DEFAULTS.slippageRate,
       now,
+    )
+    .run();
+  await db
+    .prepare(
+      `UPDATE bist_paper_account
+       SET max_positions = ?, updated_at = ?
+       WHERE id = 1 AND max_positions < ?`,
+    )
+    .bind(
+      BIST_PAPER_DEFAULTS.maxPositions,
+      now,
+      BIST_PAPER_DEFAULTS.maxPositions,
     )
     .run();
   await db.prepare("PRAGMA optimize").run();

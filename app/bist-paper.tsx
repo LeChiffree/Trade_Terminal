@@ -81,7 +81,7 @@ function PositionTable({
           ? (position.net_pnl / position.capital) * 100
           : 0;
         return (
-          <div className="paper-row" key={position.id}>
+          <div className="paper-row trade-row long" key={position.id}>
             <span>
               <b>{position.symbol}</b>
               <small>{position.name} · {position.interval}</small>
@@ -186,11 +186,11 @@ export default function BistPaper({ now }: { now: number }) {
     <>
       <section className="panel module-panel paper-hero bist-paper-hero">
         <div>
-          <span className="eyebrow">BIST TOP 10 LONG PAPER PORTFÖY</span>
+          <span className="eyebrow">BIST TOP 15 LONG PAPER PORTFÖY</span>
           <h2>80 yüksek hacimli hissede, altı zaman diliminin en güçlü puanları</h2>
           <p>
             Her hissede 5m, 15m, 1h, 4h, 1g ve 1hft puanları karşılaştırılır.
-            En güçlü 10 uygun hisseye 1.000 TL ile long açılır; seçilen frame
+            En güçlü 15 uygun hisseye 1.000 TL ile long açılır; seçilen frame
             puanı çıkış eşiğinin altına indiğinde işlem kapanır.
           </p>
         </div>
@@ -222,7 +222,7 @@ export default function BistPaper({ now }: { now: number }) {
         </article>
         <article className="panel">
           <small>Açık işlem</small>
-          <strong>{metrics?.openPositions ?? 0} / {account?.max_positions ?? 10}</strong>
+          <strong>{metrics?.openPositions ?? 0} / {account?.max_positions ?? 15}</strong>
           <span>{money(metrics?.reservedCapital ?? 0)} bağlı sermaye</span>
         </article>
         <article className="panel">
@@ -294,7 +294,7 @@ export default function BistPaper({ now }: { now: number }) {
         <p>
           Giriş: her hissedeki en yüksek frame puanı seçilir; minimum +
           {account?.entry_score ?? 30} puan ve %{account?.minimum_confidence ?? 70}
-          {" "}güven aranır, en fazla {account?.max_positions ?? 10} benzersiz
+          {" "}güven aranır, en fazla {account?.max_positions ?? 15} benzersiz
           hisse açılır. Çıkış: pozisyonun seçildiği frame puanı +
           {account?.exit_score ?? 15} altına indiğinde kapanır. İşlem başına
           {" "}{money(account?.capital_per_trade ?? 1_000)} ayrılır; giriş ve

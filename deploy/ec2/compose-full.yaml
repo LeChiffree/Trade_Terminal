@@ -10,7 +10,7 @@ services:
     environment:
       SITES_SYNC_URL: ${SITES_SYNC_URL:-https://quantscope-terminal.hikmet-onur21.chatgpt.site/api/scanner/sync}
       SCANNER_SINGLE_TICK: "true"
-      SCANNER_CONCURRENCY: "4"
+      SCANNER_CONCURRENCY: "12"
       TZ: Europe/Istanbul
     secrets:
       - scanner_env

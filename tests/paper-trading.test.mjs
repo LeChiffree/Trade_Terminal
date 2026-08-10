@@ -27,11 +27,11 @@ async function loadPaperModule() {
   };
 }
 
-test("uses ten concurrent positions for the leveraged paper portfolio", async (context) => {
+test("uses twenty concurrent positions for the leveraged paper portfolio", async (context) => {
   const loaded = await loadPaperModule();
   context.after(loaded.cleanup);
 
-  assert.equal(loaded.module.PAPER_DEFAULTS.maxPositions, 10);
+  assert.equal(loaded.module.PAPER_DEFAULTS.maxPositions, 20);
 });
 
 test("calculates leveraged long P/L after both-side fees, slippage and funding", async (context) => {

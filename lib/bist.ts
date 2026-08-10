@@ -126,55 +126,77 @@ export function normalizeBistQuery(
 }
 
 export function scoreBistTechnical(input: TechnicalInputs) {
-  let score = (input.recommend ?? 0) * 55;
-  const available = [
-    input.recommend,
-    input.rsi,
-    input.macd,
-    input.macdSignal,
-    input.ema20,
-    input.ema50,
-    input.sma200,
-  ].filter((value) => value !== null).length;
+  const relative = (left: number, right: number | null, scalePercent: number) =>
+    right === null || right === 0
+      ? null
+      : clamp((((left - right) / Math.abs(right)) * 100) / scalePercent, -1, 1);
+  const components: Array<{ value: number; weight: number }> = [];
+  const add = (value: number | null, weight: number) => {
+    if (value !== null && Number.isFinite(value)) {
+      components.push({ value: clamp(value, -1, 1), weight });
+    }
+  };
 
-  if (input.ema20 !== null) score += input.close >= input.ema20 ? 8 : -8;
-  if (input.ema20 !== null && input.ema50 !== null) {
-    score += input.ema20 >= input.ema50 ? 8 : -8;
-  }
-  if (input.ema50 !== null && input.sma200 !== null) {
-    score += input.ema50 >= input.sma200 ? 6 : -6;
-  }
-  if (input.rsi !== null) {
-    if (input.rsi >= 55 && input.rsi <= 70) score += 8;
-    else if (input.rsi >= 30 && input.rsi <= 45) score -= 8;
-    else if (input.rsi > 75) score -= 2;
-    else if (input.rsi < 25) score += 2;
-  }
-  if (input.macd !== null && input.macdSignal !== null) {
-    score += input.macd >= input.macdSignal ? 10 : -10;
-  }
-  if (input.change > 0.5) score += 3;
-  else if (input.change < -0.5) score -= 3;
+  // TradingView's recommendation is useful, but it must not dominate every
+  // other family. Relative distances keep the result continuous instead of
+  // handing out the same binary +8/+10 bonuses to most bullish shares.
+  add(input.recommend, 34);
+  add(relative(input.close, input.ema20, 4), 14);
+  add(
+    input.ema20 === null ? null : relative(input.ema20, input.ema50, 5),
+    12,
+  );
+  add(
+    input.ema50 === null ? null : relative(input.ema50, input.sma200, 9),
+    10,
+  );
+  add(
+    input.rsi === null ? null : clamp((input.rsi - 50) / 22, -1, 1),
+    10,
+  );
+  add(
+    input.macd === null || input.macdSignal === null || input.close === 0
+      ? null
+      : clamp(
+          (input.macd - input.macdSignal) / (Math.abs(input.close) * 0.008),
+          -1,
+          1,
+        ),
+    14,
+  );
+  add(clamp(input.change / 3.5, -1, 1), 6);
 
+  const score = components.reduce(
+    (total, component) => total + component.value * component.weight,
+    0,
+  );
   const roundedScore = Math.round(clamp(score, -100, 100));
-  const directionalInputs = [
-    input.recommend === null ? 0 : Math.sign(input.recommend),
-    input.ema20 === null ? 0 : Math.sign(input.close - input.ema20),
-    input.ema20 === null || input.ema50 === null
-      ? 0
-      : Math.sign(input.ema20 - input.ema50),
-    input.macd === null || input.macdSignal === null
-      ? 0
-      : Math.sign(input.macd - input.macdSignal),
-  ].filter(Boolean);
-  const aligned = directionalInputs.length
-    ? Math.max(
-        directionalInputs.filter((value) => value > 0).length,
-        directionalInputs.filter((value) => value < 0).length,
-      ) / directionalInputs.length
+  const availableWeight = components.reduce(
+    (total, component) => total + component.weight,
+    0,
+  );
+  const active = components.filter((component) => Math.abs(component.value) >= 0.08);
+  const positiveEvidence = active.reduce(
+    (total, component) =>
+      total + (component.value > 0 ? Math.abs(component.value * component.weight) : 0),
+    0,
+  );
+  const negativeEvidence = active.reduce(
+    (total, component) =>
+      total + (component.value < 0 ? Math.abs(component.value * component.weight) : 0),
+    0,
+  );
+  const directionalEvidence = positiveEvidence + negativeEvidence;
+  const agreement = directionalEvidence
+    ? Math.max(positiveEvidence, negativeEvidence) / directionalEvidence
     : 0;
+  const coverage = availableWeight / 100;
   const confidence = Math.round(
-    clamp(35 + available * 6 + aligned * 18, 0, 95),
+    clamp(
+      24 + coverage * 24 + agreement * 22 + Math.min(60, Math.abs(score)) * 0.32,
+      0,
+      92,
+    ),
   );
   const direction =
     roundedScore >= 20

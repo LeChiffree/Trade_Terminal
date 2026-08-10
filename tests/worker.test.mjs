@@ -19,7 +19,7 @@ const ctx = {
   passThroughOnException() {},
 };
 
-test("renders the QuantScope application shell and production metadata", async () => {
+test("renders the Trade Terminal application shell and production metadata", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/", { headers: { accept: "text/html" } }),
@@ -32,7 +32,7 @@ test("renders the QuantScope application shell and production metadata", async (
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.match(html, /<html[^>]*lang=["']tr["']/i);
-  assert.match(html, /QuantScope Trade Terminal/);
+  assert.match(html, /Trade Terminal/);
   assert.match(html, /Paper Trade/);
   assert.doesNotMatch(html, /codex-preview/i);
 });
@@ -81,6 +81,12 @@ test("packages the persistent scheduled scanner", async () => {
     /SET `max_positions` = 10 WHERE `max_positions` < 10/,
   );
   assert.match(paperLimitMigration, /PRAGMA optimize/);
+  const expandedPaperLimitMigration = await readFile(
+    new URL("../dist/.openai/drizzle/0006_perfect_annihilus.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(expandedPaperLimitMigration, /`max_positions` integer DEFAULT 15/);
+  assert.match(expandedPaperLimitMigration, /`max_positions` integer DEFAULT 20/);
 });
 
 test("exposes the independent BIST paper portfolio route", async () => {

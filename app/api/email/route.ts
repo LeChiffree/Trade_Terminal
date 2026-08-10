@@ -61,11 +61,11 @@ function isRateLimited(request: Request) {
 function createContent(body: EmailRequest) {
   if (body.action === "test") {
     return {
-      subject: "QuantScope e-posta bağlantı testi",
-      text: "Bağlantı başarılı. QuantScope alarm motoru e-posta göndermeye hazır.",
+      subject: "Trade Terminal e-posta bağlantı testi",
+      text: "Bağlantı başarılı. Trade Terminal alarm motoru e-posta göndermeye hazır.",
       html:
         "<h2 style=\"margin:0 0 12px\">Bağlantı başarılı</h2>" +
-        "<p>QuantScope alarm motoru e-posta göndermeye hazır.</p>",
+        "<p>Trade Terminal alarm motoru e-posta göndermeye hazır.</p>",
     };
   }
   if (body.action !== "alert") return null;
@@ -99,7 +99,7 @@ function createContent(body: EmailRequest) {
       `<p>Eşik: <b>${formatNumber(threshold)}</b><br>` +
       `Quant skor: <b>${formatNumber(quantScore, 0)}</b><br>` +
       `Güven: <b>%${formatNumber(confidence, 0)}</b></p>` +
-      "<p style=\"color:#64748b\">Bu bildirim QuantScope tarafından otomatik oluşturuldu.</p>",
+      "<p style=\"color:#64748b\">Bu bildirim Trade Terminal tarafından otomatik oluşturuldu.</p>",
   };
 }
 
