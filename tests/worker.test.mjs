@@ -56,6 +56,7 @@ test("packages the persistent scheduled scanner", async () => {
   assert.equal(hosting.d1, "DB");
   assert.equal(wrangler.d1_databases[0].binding, "DB");
   assert.match(workerSource, /SCANNER_SINGLE_TICK/);
+  assert.match(workerSource, /managed-by-ec2/);
   assert.match(workerSource, /managed-by-sites/);
   const paperMigration = await readFile(
     new URL("../dist/.openai/drizzle/0002_paper_trading.sql", import.meta.url),

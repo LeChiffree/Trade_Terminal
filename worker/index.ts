@@ -61,11 +61,13 @@ const worker = {
       String(env.SCANNER_SINGLE_TICK ?? "").trim().toLowerCase(),
     );
     const [scannerResult, bistPaperResult] = await Promise.allSettled([
-      runScheduledScannerMinute(
-        env,
-        scheduledMinute,
-        async (delayMs) => await scheduler.wait(delayMs),
-      ),
+      ec2SingleTick
+        ? runScheduledScannerMinute(
+            env,
+            scheduledMinute,
+            async (delayMs) => await scheduler.wait(delayMs),
+          )
+        : Promise.resolve({ skipped: true, reason: "managed-by-ec2" }),
       env.DB && !ec2SingleTick
         ? runBistPaperTradingCycleIfDue(env.DB, Date.now())
         : Promise.resolve({
