@@ -43,6 +43,13 @@
       "when": 1786302100867,
       "tag": "0005_first_stature",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786340754453,
+      "tag": "0006_lonely_trauma",
+      "breakpoints": true
     }
   ]
 }
