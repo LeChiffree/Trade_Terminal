@@ -1,6 +1,7 @@
 export const BINANCE_FUTURES_DEMO_BASE_URL =
   "https://demo-fapi.binance.com";
 export const BINANCE_DEMO_REQUEST_TIMEOUT_MS = 8_000;
+export const BINANCE_DEMO_RETRY_BACKOFF_MS = 5 * 60_000;
 
 export type BinanceDemoFuturesEnv = {
   BINANCE_API_KEY?: string;
@@ -670,12 +671,17 @@ export async function runBinanceDemoFuturesMirrorCycle(
     });
   }
 
+  const retryReady = (mirror: MirrorRow) =>
+    !mirror.last_error || now - mirror.updated_at >= BINANCE_DEMO_RETRY_BACKOFF_MS;
   const toClose = [...mirrorById.values()].filter(
-    (mirror) => !desiredIds.has(mirror.paper_position_id),
+    (mirror) =>
+      !desiredIds.has(mirror.paper_position_id) && retryReady(mirror),
   );
   const toOpen = papers
     .map((paper) => ({ paper, mirror: mirrorById.get(paper.id)! }))
-    .filter(({ mirror }) => mirror.status === "pending-open");
+    .filter(
+      ({ mirror }) => mirror.status === "pending-open" && retryReady(mirror),
+    );
   if (!toClose.length && !toOpen.length) {
     await db
       .prepare(
