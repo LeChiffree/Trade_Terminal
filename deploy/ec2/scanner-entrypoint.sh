@@ -126,7 +126,7 @@ fi
 log "QuantScope scanner is ready."
 
 run_cycle() {
-  curl --fail --silent --show-error --max-time 120 \
+  curl --fail --silent --show-error --max-time 240 \
     "http://127.0.0.1:$port/__scheduled" >/dev/null || return 1
 
   status_ready=0
@@ -179,7 +179,7 @@ while true; do
   sleep "$delay"
 
   if ! run_cycle; then
-    log "cycle failed; the local state is preserved and the next minute will retry."
+    log "cycle failed; the local state is preserved and the next tick will retry."
     sleep 5
   fi
 done

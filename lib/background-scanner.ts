@@ -29,7 +29,7 @@ export const SCANNER_INTERVALS = [
   { interval: "1d", cadenceSeconds: 900, phaseSeconds: 60, horizon: "uzun vadede" },
   { interval: "1w", cadenceSeconds: 3_600, phaseSeconds: 120, horizon: "makro vadede" },
 ] as const;
-export const EC2_SCANNER_CONCURRENCY = 12;
+export const EC2_SCANNER_CONCURRENCY = 20;
 
 export type ScannerEnv = BinanceDemoFuturesEnv & {
   DB?: D1Database;

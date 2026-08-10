@@ -40,7 +40,7 @@ test("packages an EC2 scanner without publishing its private listener", async ()
   assert.match(entrypoint, /status_attempt.*-le 30/s);
   assert.match(entrypoint, /OAI-Sites-Authorization: Bearer/);
   assert.match(compose, /SCANNER_SINGLE_TICK: "true"/);
-  assert.match(scannerSource, /EC2_SCANNER_CONCURRENCY = 12/);
+  assert.match(scannerSource, /EC2_SCANNER_CONCURRENCY = 20/);
   assert.deepEqual(worker.triggers.crons, ["* * * * *"]);
   assert.equal(worker.d1_databases[0].binding, "DB");
 });
