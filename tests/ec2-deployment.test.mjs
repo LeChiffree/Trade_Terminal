@@ -8,17 +8,19 @@ const files = {
   fullCompose: new URL("../deploy/ec2/compose-full.yaml", import.meta.url),
   entrypoint: new URL("../deploy/ec2/scanner-entrypoint.sh", import.meta.url),
   worker: new URL("../deploy/ec2/scanner-worker.jsonc", import.meta.url),
+  scannerSource: new URL("../lib/background-scanner.ts", import.meta.url),
   secrets: new URL("../deploy/ec2/scanner.env.example", import.meta.url),
   secretInstaller: new URL("../deploy/ec2/install-scanner-secret.sh", import.meta.url),
   dockerignore: new URL("../.dockerignore", import.meta.url),
 };
 
 test("packages an EC2 scanner without publishing its private listener", async () => {
-  const [dockerfile, compose, entrypoint, workerText] = await Promise.all([
+  const [dockerfile, compose, entrypoint, workerText, scannerSource] = await Promise.all([
     readFile(files.dockerfile, "utf8"),
     readFile(files.compose, "utf8"),
     readFile(files.entrypoint, "utf8"),
     readFile(files.worker, "utf8"),
+    readFile(files.scannerSource, "utf8"),
   ]);
   const worker = JSON.parse(workerText);
 
@@ -38,6 +40,7 @@ test("packages an EC2 scanner without publishing its private listener", async ()
   assert.match(entrypoint, /status_attempt.*-le 30/s);
   assert.match(entrypoint, /OAI-Sites-Authorization: Bearer/);
   assert.match(compose, /SCANNER_SINGLE_TICK: "true"/);
+  assert.match(scannerSource, /EC2_SCANNER_CONCURRENCY = 12/);
   assert.deepEqual(worker.triggers.crons, ["* * * * *"]);
   assert.equal(worker.d1_databases[0].binding, "DB");
 });

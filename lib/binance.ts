@@ -1,9 +1,9 @@
 import { makeDemoMarket, type Candle, type MarketPayload } from "./analysis";
 
 const BASE_URLS = [
-  "https://data-api.binance.vision",
   "https://api.binance.com",
   "https://api-gcp.binance.com",
+  "https://data-api.binance.vision",
 ];
 const INTERVALS = new Set(["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w"]);
 const STABLE_ASSETS = new Set([
