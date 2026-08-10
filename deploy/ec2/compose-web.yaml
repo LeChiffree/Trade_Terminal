@@ -1,0 +1,42 @@
+name: quantscope-web
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/ec2/Dockerfile
+    image: quantscope-web:${QUANTSCOPE_IMAGE_TAG:-local}
+    restart: unless-stopped
+    entrypoint: ["dumb-init", "--", "/usr/local/bin/quantscope-web"]
+    environment:
+      TZ: Europe/Istanbul
+      PORT: 8791
+      PERSIST_DIR: /data
+      XDG_CONFIG_HOME: /tmp/quantscope/config
+      WRANGLER_SEND_METRICS: "false"
+      WRANGLER_WRITE_LOGS: "false"
+    ports:
+      - "80:8791"
+    volumes:
+      - type: bind
+        source: ${QUANTSCOPE_DATA_DIR:-/opt/quantscope/data}
+        target: /data
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "5", "http://127.0.0.1:8791/"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 45s
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"

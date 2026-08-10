@@ -25,8 +25,9 @@ COPY --from=build --chown=quantscope:quantscope /app/node_modules ./node_modules
 COPY --from=build --chown=quantscope:quantscope /app/package.json ./package.json
 COPY --from=build --chown=quantscope:quantscope /app/deploy/ec2/scanner-worker.jsonc ./.scanner-worker.jsonc
 COPY --from=build --chown=quantscope:quantscope /app/deploy/ec2/scanner-entrypoint.sh /usr/local/bin/quantscope-scanner
+COPY --from=build --chown=quantscope:quantscope /app/deploy/ec2/web-entrypoint.sh /usr/local/bin/quantscope-web
 
-RUN chmod 0755 /usr/local/bin/quantscope-scanner
+RUN chmod 0755 /usr/local/bin/quantscope-scanner /usr/local/bin/quantscope-web
 
 ENV CI=true \
     NODE_ENV=production \
