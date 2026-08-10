@@ -27,6 +27,18 @@ cp .env.example .env.local
 npm run dev
 ```
 
+Yerel arka plan tarayıcısını ayrı bir terminalde başlatmak için:
+
+```powershell
+npm run scanner:local
+```
+
+Bu servis `.env.local` değerlerini Wrangler'a doğrudan `--env-file` ile verir,
+yerel D1 durumunu korur ve worker beklenmedik biçimde kapanırsa temiz bir
+Windows ortamıyla yeniden başlatır. Yayındaki terminale senkronizasyon yapan
+kalıcı kurulum, erişim belirteçlerini kaynak kod yerine yerel servis
+yapılandırmasından parametre olarak geçirir.
+
 `.env.local` içindeki değerler yalnızca sunucu tarafından okunur:
 
 ```dotenv

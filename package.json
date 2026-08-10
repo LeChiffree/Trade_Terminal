@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "vinext build && node scripts/validate-artifact.mjs",
     "start": "vinext start",
+    "scanner:local": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/local-scanner-service.ps1 -SkipRemoteSync",
     "test": "npm run build && node --test tests/*.test.mjs",
     "validate:artifact": "node scripts/validate-artifact.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
