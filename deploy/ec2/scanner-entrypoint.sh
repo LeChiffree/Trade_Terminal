@@ -128,7 +128,7 @@ log "QuantScope scanner is ready."
 
 run_cycle() {
   curl --fail --silent --show-error --max-time 240 \
-    "http://127.0.0.1:$port/__scheduled" >/dev/null || return 1
+    "http://127.0.0.1:$port/__scheduled" >/dev/null || return 10
 
   status_ready=0
   status_attempt=1
@@ -144,10 +144,10 @@ run_cycle() {
   done
   if [ "$status_ready" -ne 1 ]; then
     log "Scanner status did not become readable after the tick."
-    return 1
+    return 11
   fi
   jq -e '.config and .intervals and .leaders and .paper' \
-    "$status_file" >/dev/null || return 1
+    "$status_file" >/dev/null || return 12
 
   curl --fail --silent --show-error --max-time 30 \
     --retry 2 \
@@ -160,14 +160,17 @@ run_cycle() {
     --header "X-QuantScope-Trigger: $SCANNER_TRIGGER_KEY" \
     --data-binary "@$status_file" \
     --output "$sync_file" \
-    "$SITES_SYNC_URL" || return 1
-  jq -e '.ok == true' "$sync_file" >/dev/null || return 1
+    "$SITES_SYNC_URL" || return 20
+  jq -e '.ok == true' "$sync_file" >/dev/null || return 21
 
   scans="$(jq -r '.config.scans_completed // 0' "$status_file")"
   alerts="$(jq -r '.config.alerts_sent // 0' "$status_file")"
   open_positions="$(jq -r '.paper.openPositions | length' "$status_file")"
   log "cycle complete; scans=$scans alerts=$alerts open_positions=$open_positions"
 }
+
+consecutive_worker_failures=0
+max_worker_failures=4
 
 while true; do
   if ! kill -0 "$worker_pid" 2>/dev/null; then
@@ -179,8 +182,25 @@ while true; do
   delay=$((15 - (now % 15)))
   sleep "$delay"
 
-  if ! run_cycle; then
-    log "cycle failed; the local state is preserved and the next tick will retry."
+  if run_cycle; then
+    consecutive_worker_failures=0
+  else
+    cycle_result="$?"
+    case "$cycle_result" in
+      20|21)
+        # Remote state sync must not restart an otherwise healthy scanner.
+        consecutive_worker_failures=0
+        log "remote sync failed; the local scanner will keep running."
+        ;;
+      *)
+        consecutive_worker_failures=$((consecutive_worker_failures + 1))
+        log "local cycle failed ($consecutive_worker_failures/$max_worker_failures); state is preserved."
+        if [ "$consecutive_worker_failures" -ge "$max_worker_failures" ]; then
+          log "scanner worker stayed unavailable; exiting so Docker can restart it."
+          exit 1
+        fi
+        ;;
+    esac
     sleep 5
   fi
 done
