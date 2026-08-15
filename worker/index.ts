@@ -7,6 +7,7 @@ import { runBistPaperTradingCycleIfDue } from "../lib/bist-paper-trading";
 interface Env {
   ASSETS: Fetcher;
   DB?: D1Database;
+  ALGORITHM_EXECUTION_ENABLED?: string;
   SCANNER_SINGLE_TICK?: string;
   FASTACT_EMAIL_SENDER?: string;
   FASTACT_EMAIL_APP_PASSWORD?: string;
@@ -56,6 +57,10 @@ const worker = {
     return withSecurityHeaders(await handler.fetch(request, env, ctx));
   },
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    const algorithmExecutionEnabled = ["1", "true", "yes", "on"].includes(
+      String(env.ALGORITHM_EXECUTION_ENABLED ?? "").trim().toLowerCase(),
+    );
+    if (!algorithmExecutionEnabled) return;
     const scheduledMinute = Math.floor(Date.now() / 60_000) * 60_000;
     const ec2SingleTick = ["1", "true", "yes", "on"].includes(
       String(env.SCANNER_SINGLE_TICK ?? "").trim().toLowerCase(),

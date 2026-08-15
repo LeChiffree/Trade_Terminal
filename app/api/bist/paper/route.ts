@@ -30,9 +30,17 @@ export async function GET() {
     );
   }
   let database: D1Database | undefined;
+  let algorithmExecutionEnabled = false;
   try {
     const cloudflare = await import("cloudflare:workers");
-    database = (cloudflare.env as { DB?: D1Database }).DB;
+    const env = cloudflare.env as {
+      DB?: D1Database;
+      ALGORITHM_EXECUTION_ENABLED?: string;
+    };
+    database = env.DB;
+    algorithmExecutionEnabled = ["1", "true", "yes", "on"].includes(
+      String(env.ALGORITHM_EXECUTION_ENABLED ?? "").trim().toLowerCase(),
+    );
   } catch {
     database = undefined;
   }
@@ -52,10 +60,12 @@ export async function GET() {
     );
   }
   try {
-    try {
-      await runBistPaperTradingCycleIfDue(database, Date.now());
-    } catch {
-      // Status still exposes the persisted provider error and last good state.
+    if (algorithmExecutionEnabled) {
+      try {
+        await runBistPaperTradingCycleIfDue(database, Date.now());
+      } catch {
+        // Status still exposes the persisted provider error and last good state.
+      }
     }
     return Response.json(await getBistPaperTradingStatus(database), {
       headers: { "Cache-Control": "no-store" },

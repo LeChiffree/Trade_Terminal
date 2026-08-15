@@ -3,9 +3,6 @@ import {
   type ScannerEnv,
 } from "@/lib/background-scanner";
 import {
-  runBistPaperTradingCycleIfDue,
-} from "@/lib/bist-paper-trading";
-import {
   BINANCE_FUTURES_DEMO_BASE_URL,
   getBinanceDemoFuturesMirrorStatus,
 } from "@/lib/binance-demo-futures";
@@ -512,14 +509,6 @@ export async function POST(request: Request) {
   }
 
   await env.DB.batch(statements);
-  let bistPaper: Awaited<
-    ReturnType<typeof runBistPaperTradingCycleIfDue>
-  > | null = null;
-  try {
-    bistPaper = await runBistPaperTradingCycleIfDue(env.DB, Date.now());
-  } catch {
-    // The crypto snapshot must remain successful when the BIST provider is down.
-  }
   return Response.json(
     {
       ok: true,
@@ -527,7 +516,7 @@ export async function POST(request: Request) {
       scans,
       leaders: syncedLeaderCount,
       paperPositions: syncedPositionCount,
-      bistPaper,
+      bistPaper: null,
     },
     { headers: { "Cache-Control": "no-store" } },
   );

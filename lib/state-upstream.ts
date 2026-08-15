@@ -4,8 +4,12 @@ function configuredUpstream(name: string, expectedPath: string) {
   const raw = process.env[name]?.trim();
   if (!raw) return null;
   const url = new URL(raw);
+  const privateScanner =
+    url.protocol === "http:" &&
+    url.hostname === "scanner" &&
+    url.port === "8791";
   if (
-    url.protocol !== "https:" ||
+    (url.protocol !== "https:" && !privateScanner) ||
     url.username ||
     url.password ||
     url.pathname !== expectedPath ||
@@ -14,17 +18,17 @@ function configuredUpstream(name: string, expectedPath: string) {
   ) {
     throw new Error(`${name} güvenli bir ${expectedPath} adresi olmalıdır.`);
   }
-  return url;
+  return { url, privateScanner };
 }
 
 export async function fetchStateUpstream(
   environmentName: string,
   expectedPath: string,
 ) {
-  const url = configuredUpstream(environmentName, expectedPath);
-  if (!url) return null;
+  const upstream = configuredUpstream(environmentName, expectedPath);
+  if (!upstream) return null;
   const bearer = process.env.SITES_SYNC_BEARER_TOKEN?.trim();
-  if (!bearer) {
+  if (!upstream.privateScanner && !bearer) {
     throw new Error("Sites durum okuma anahtarı yapılandırılmadı.");
   }
 
@@ -32,12 +36,13 @@ export async function fetchStateUpstream(
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url.toString(), {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (!upstream.privateScanner) {
+      headers["OAI-Sites-Authorization"] = `Bearer ${bearer}`;
+    }
+    response = await fetch(upstream.url.toString(), {
       method: "GET",
-      headers: {
-        Accept: "application/json",
-        "OAI-Sites-Authorization": `Bearer ${bearer}`,
-      },
+      headers,
       signal: controller.signal,
     });
   } finally {

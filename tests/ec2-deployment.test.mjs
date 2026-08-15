@@ -41,6 +41,9 @@ test("packages an EC2 scanner without publishing its private listener", async ()
   assert.match(entrypoint, /15 - \(now % 15\)/);
   assert.match(entrypoint, /status_attempt.*-le 30/s);
   assert.match(entrypoint, /OAI-Sites-Authorization: Bearer/);
+  assert.match(entrypoint, /sites_sync_enabled/);
+  assert.match(compose, /SITES_SYNC_ENABLED: "false"/);
+  assert.match(compose, /ALGORITHM_EXECUTION_ENABLED: "true"/);
   assert.match(compose, /SCANNER_SINGLE_TICK: "true"/);
   assert.match(compose, /SCANNER_CONCURRENCY: "8"/);
   assert.match(entrypoint, /"SCANNER_CONCURRENCY"/);
@@ -60,6 +63,9 @@ test("isolates the EC2 frontend from the scanner state owner", async () => {
   const scannerBlock = fullCompose.split("\n  web:")[0];
 
   assert.match(fullCompose, /SCANNER_STATUS_UPSTREAM_URL:/);
+  assert.match(fullCompose, /SCANNER_STATUS_UPSTREAM_URL: http:\/\/scanner:8791\/api\/scanner/);
+  assert.match(fullCompose, /SITES_SYNC_ENABLED: "false"/);
+  assert.match(fullCompose, /condition: service_healthy/);
   assert.match(fullCompose, /SCANNER_CONCURRENCY: "8"/);
   assert.match(fullCompose, /BIST_PAPER_STATUS_UPSTREAM_URL:/);
   assert.match(fullCompose, /ports: \["80:8791"\]/);

@@ -28,9 +28,17 @@ set +a
 require_value FASTACT_EMAIL_SENDER
 require_value FASTACT_EMAIL_APP_PASSWORD
 require_value FASTACT_EMAIL_RECIPIENT
-require_value SCANNER_TRIGGER_KEY
-require_value SITES_SYNC_BEARER_TOKEN
-require_value SITES_SYNC_URL
+
+sites_sync_enabled="${SITES_SYNC_ENABLED:-false}"
+case "$(printf '%s' "$sites_sync_enabled" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on)
+    sites_sync_enabled="true"
+    require_value SCANNER_TRIGGER_KEY
+    require_value SITES_SYNC_BEARER_TOKEN
+    require_value SITES_SYNC_URL
+    ;;
+  *) sites_sync_enabled="false" ;;
+esac
 
 if [ "${BINANCE_FUTURES_TRADING_ENABLED:-false}" = "true" ]; then
   require_value BINANCE_API_KEY
@@ -39,13 +47,15 @@ if [ "${BINANCE_FUTURES_TRADING_ENABLED:-false}" = "true" ]; then
   require_value BINANCE_FUTURES_BASE_URL
 fi
 
-case "$SITES_SYNC_URL" in
-  https://*/api/scanner/sync) ;;
-  *)
-    log "SITES_SYNC_URL must be an HTTPS scanner sync endpoint."
-    exit 1
-    ;;
-esac
+if [ "$sites_sync_enabled" = "true" ]; then
+  case "$SITES_SYNC_URL" in
+    https://*/api/scanner/sync) ;;
+    *)
+      log "SITES_SYNC_URL must be an HTTPS scanner sync endpoint."
+      exit 1
+      ;;
+  esac
+fi
 
 port="${PORT:-8791}"
 bind_address="${BIND_ADDRESS:-127.0.0.1}"
@@ -68,6 +78,7 @@ const keys = [
   "FASTACT_EMAIL_APP_PASSWORD",
   "FASTACT_EMAIL_RECIPIENT",
   "SCANNER_TRIGGER_KEY",
+  "ALGORITHM_EXECUTION_ENABLED",
   "SCANNER_SINGLE_TICK",
   "SCANNER_CONCURRENCY",
   "BINANCE_API_KEY",
@@ -149,19 +160,21 @@ run_cycle() {
   jq -e '.config and .intervals and .leaders and .paper' \
     "$status_file" >/dev/null || return 12
 
-  curl --fail --silent --show-error --max-time 30 \
-    --retry 2 \
-    --retry-delay 2 \
-    --retry-all-errors \
-    --request POST \
-    --header "Accept: application/json" \
-    --header "Content-Type: application/json" \
-    --header "OAI-Sites-Authorization: Bearer $SITES_SYNC_BEARER_TOKEN" \
-    --header "X-QuantScope-Trigger: $SCANNER_TRIGGER_KEY" \
-    --data-binary "@$status_file" \
-    --output "$sync_file" \
-    "$SITES_SYNC_URL" || return 20
-  jq -e '.ok == true' "$sync_file" >/dev/null || return 21
+  if [ "$sites_sync_enabled" = "true" ]; then
+    curl --fail --silent --show-error --max-time 30 \
+      --retry 2 \
+      --retry-delay 2 \
+      --retry-all-errors \
+      --request POST \
+      --header "Accept: application/json" \
+      --header "Content-Type: application/json" \
+      --header "OAI-Sites-Authorization: Bearer $SITES_SYNC_BEARER_TOKEN" \
+      --header "X-QuantScope-Trigger: $SCANNER_TRIGGER_KEY" \
+      --data-binary "@$status_file" \
+      --output "$sync_file" \
+      "$SITES_SYNC_URL" || return 20
+    jq -e '.ok == true' "$sync_file" >/dev/null || return 21
+  fi
 
   scans="$(jq -r '.config.scans_completed // 0' "$status_file")"
   alerts="$(jq -r '.config.alerts_sent // 0' "$status_file")"

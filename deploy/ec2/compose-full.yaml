@@ -8,7 +8,8 @@ services:
     image: quantscope:${QUANTSCOPE_IMAGE_TAG:-local}
     restart: unless-stopped
     environment:
-      SITES_SYNC_URL: ${SITES_SYNC_URL:-https://quantscope-terminal.hikmet-onur21.chatgpt.site/api/scanner/sync}
+      ALGORITHM_EXECUTION_ENABLED: "true"
+      SITES_SYNC_ENABLED: "false"
       SCANNER_SINGLE_TICK: "true"
       SCANNER_CONCURRENCY: "8"
       TZ: Europe/Istanbul
@@ -47,7 +48,8 @@ services:
       TZ: Europe/Istanbul
       PORT: 8791
       PERSIST_DIR: /data
-      SCANNER_STATUS_UPSTREAM_URL: ${SCANNER_STATUS_UPSTREAM_URL:-https://quantscope-terminal.hikmet-onur21.chatgpt.site/api/scanner}
+      ALGORITHM_EXECUTION_ENABLED: "true"
+      SCANNER_STATUS_UPSTREAM_URL: http://scanner:8791/api/scanner
       # Run BIST paper trading against EC2's persistent local D1 so scoring and
       # portfolio migrations always match the deployed application version.
       BIST_PAPER_STATUS_UPSTREAM_URL: ""
@@ -56,6 +58,9 @@ services:
       MINIFLARE_REGISTRY_PATH: /tmp/quantscope/miniflare-registry
       WRANGLER_SEND_METRICS: "false"
       WRANGLER_WRITE_LOGS: "false"
+    depends_on:
+      scanner:
+        condition: service_healthy
     ports: ["80:8791"]
     secrets:
       - scanner_env
