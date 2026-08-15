@@ -1,0 +1,12 @@
+ARG BASE_IMAGE=quantscope:local
+FROM ${BASE_IMAGE}
+
+USER root
+
+COPY --chown=10001:10001 dist /app/dist
+COPY --chown=10001:10001 deploy/ec2/scanner-entrypoint.sh /usr/local/bin/quantscope-scanner
+COPY --chown=10001:10001 deploy/ec2/web-entrypoint.sh /usr/local/bin/quantscope-web
+
+RUN chmod 0755 /usr/local/bin/quantscope-scanner /usr/local/bin/quantscope-web
+
+USER quantscope

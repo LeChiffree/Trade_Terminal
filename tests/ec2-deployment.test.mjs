@@ -4,6 +4,7 @@ import test from "node:test";
 
 const files = {
   dockerfile: new URL("../deploy/ec2/Dockerfile", import.meta.url),
+  prebuiltDockerfile: new URL("../deploy/ec2/Dockerfile.prebuilt", import.meta.url),
   compose: new URL("../deploy/ec2/compose.yaml", import.meta.url),
   fullCompose: new URL("../deploy/ec2/compose-full.yaml", import.meta.url),
   entrypoint: new URL("../deploy/ec2/scanner-entrypoint.sh", import.meta.url),
@@ -80,6 +81,15 @@ test("isolates the EC2 frontend from the scanner state owner", async () => {
   assert.match(webEntrypoint, /--config \/app\/\.web-worker\.jsonc/);
   assert.equal(webWorker.assets.binding, "ASSETS");
   assert.equal(webWorker.assets.directory, "./dist/client");
+});
+
+test("supports low-memory deployment from a prebuilt artifact", async () => {
+  const prebuiltDockerfile = await readFile(files.prebuiltDockerfile, "utf8");
+
+  assert.match(prebuiltDockerfile, /ARG BASE_IMAGE=quantscope:local/);
+  assert.match(prebuiltDockerfile, /COPY --chown=10001:10001 dist \/app\/dist/);
+  assert.doesNotMatch(prebuiltDockerfile, /npm (ci|run)/);
+  assert.match(prebuiltDockerfile, /USER quantscope/);
 });
 
 test("keeps EC2 credentials outside the image and tracked configuration", async () => {
