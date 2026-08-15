@@ -67,6 +67,7 @@ test("isolates the EC2 frontend from the scanner state owner", async () => {
   assert.match(fullCompose, /SCANNER_STATUS_UPSTREAM_URL:/);
   assert.match(fullCompose, /SCANNER_STATUS_UPSTREAM_URL: http:\/\/scanner:8791\/api\/scanner/);
   assert.match(fullCompose, /SITES_SYNC_ENABLED: "false"/);
+  assert.match(fullCompose, /BIND_ADDRESS: 0\.0\.0\.0/);
   assert.match(fullCompose, /condition: service_healthy/);
   assert.match(fullCompose, /SCANNER_CONCURRENCY: "8"/);
   assert.match(fullCompose, /BIST_PAPER_STATUS_UPSTREAM_URL:/);

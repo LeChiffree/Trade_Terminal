@@ -10,6 +10,7 @@ services:
     environment:
       ALGORITHM_EXECUTION_ENABLED: "true"
       SITES_SYNC_ENABLED: "false"
+      BIND_ADDRESS: 0.0.0.0
       SCANNER_SINGLE_TICK: "true"
       SCANNER_CONCURRENCY: "8"
       TZ: Europe/Istanbul
