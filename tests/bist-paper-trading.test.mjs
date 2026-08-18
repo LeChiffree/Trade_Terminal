@@ -35,6 +35,17 @@ test("uses fifteen concurrent positions for the BIST paper portfolio", async () 
   assert.match(source, /maxPositions:\s*15/);
 });
 
+test("refreshes open BIST positions even after they leave the top-80 universe", async () => {
+  const source = await readFile(
+    new URL("../lib/bist-paper-trading.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /fetchBistSymbols/);
+  assert.match(source, /openSymbolsByInterval/);
+  assert.match(source, /positionScoreRows/);
+  assert.match(source, /chooseBistPaperLeaders\(leaderRows\)/);
+});
+
 test("selects one strongest timeframe per BIST symbol and ranks descending", async (context) => {
   const loaded = await loadMathModule();
   context.after(loaded.cleanup);

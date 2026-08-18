@@ -102,6 +102,10 @@ const directoryCache = new Map<
   BistInterval,
   { expiresAt: number; value: BistDirectory }
 >();
+const targetedDirectoryCache = new Map<
+  string,
+  { expiresAt: number; value: BistDirectory }
+>();
 const marketCache = new Map<
   string,
   { expiresAt: number; value: BistMarketPayload }
@@ -285,21 +289,11 @@ function fallbackDirectory(interval: BistInterval): BistDirectory {
   };
 }
 
-export async function fetchTopBistSymbols(
-  interval: BistInterval,
-  limit = 80,
-): Promise<BistDirectory> {
-  const requestedLimit = Math.min(80, Math.max(1, Math.trunc(limit)));
-  const cached = directoryCache.get(interval);
-  if (cached && cached.expiresAt > Date.now()) {
-    return {
-      ...cached.value,
-      symbols: cached.value.symbols.slice(0, requestedLimit),
-    };
-  }
+type TradingViewRow = { s?: unknown; d?: unknown[] };
 
+function tradingViewColumns(interval: BistInterval) {
   const suffix = TRADINGVIEW_SUFFIX[interval];
-  const columns = [
+  return [
     "name",
     "description",
     "close",
@@ -320,75 +314,104 @@ export async function fetchTopBistSymbols(
     `ADX+DI${suffix}`,
     `ADX-DI${suffix}`,
   ];
-  try {
-    const response = await fetch("https://scanner.tradingview.com/turkey/scan", {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "QuantScope/0.2",
-      },
-      body: JSON.stringify({
-        filter: [
-          { left: "exchange", operation: "equal", right: "BIST" },
-          { left: "type", operation: "equal", right: "stock" },
-        ],
-        options: { lang: "tr" },
-        markets: ["turkey"],
-        symbols: { query: { types: [] }, tickers: [] },
-        columns,
-        sort: { sortBy: "Value.Traded", sortOrder: "desc" },
-        range: [0, 80],
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+}
+
+function parseTradingViewRows(rows: TradingViewRow[]) {
+  const seen = new Set<string>();
+  return rows.flatMap((row): BistSymbol[] => {
+    const values = Array.isArray(row.d) ? row.d : [];
+    const symbol = String(values[0] ?? row.s ?? "")
+      .replace(/^BIST:/, "")
+      .toUpperCase();
+    const close = finiteOr(values[2]);
+    const turnover = finiteOr(values[5]);
+    if (
+      !/^[A-Z0-9]{2,8}$/.test(symbol) ||
+      seen.has(symbol) ||
+      close <= 0 ||
+      turnover <= 0
+    ) return [];
+    seen.add(symbol);
+    const technical = scoreBistTechnical({
+      recommend: finite(values[8]),
+      rsi: finite(values[9]),
+      macd: finite(values[10]),
+      macdSignal: finite(values[11]),
+      close,
+      ema20: finite(values[12]),
+      ema50: finite(values[13]),
+      sma200: finite(values[14]),
+      change: finiteOr(values[3]),
+      relativeVolume: finite(values[15]),
+      adx: finite(values[16]),
+      plusDi: finite(values[17]),
+      minusDi: finite(values[18]),
     });
-    if (!response.ok) throw new Error(`BIST directory ${response.status}`);
-    const payload = await response.json() as {
-      data?: Array<{ s?: unknown; d?: unknown[] }>;
+    return [{
+      symbol,
+      name: String(values[1] ?? symbol).slice(0, 120),
+      lastPrice: close,
+      priceChangePercent: finiteOr(values[3]),
+      volume: finiteOr(values[4]),
+      turnover,
+      marketCap: finiteOr(values[6]),
+      sector: String(values[7] ?? "Diğer").slice(0, 80),
+      ...technical,
+    }];
+  });
+}
+
+async function requestTradingViewRows(
+  interval: BistInterval,
+  tickers: string[] | null,
+) {
+  const response = await fetch("https://scanner.tradingview.com/turkey/scan", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "QuantScope/0.2",
+    },
+    body: JSON.stringify({
+      filter: [
+        { left: "exchange", operation: "equal", right: "BIST" },
+        { left: "type", operation: "equal", right: "stock" },
+      ],
+      options: { lang: "tr" },
+      markets: ["turkey"],
+      symbols: {
+        query: { types: [] },
+        tickers: tickers ?? [],
+      },
+      columns: tradingViewColumns(interval),
+      ...(tickers
+        ? {}
+        : { sort: { sortBy: "Value.Traded", sortOrder: "desc" } }),
+      range: [0, tickers?.length ?? 80],
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) throw new Error(`BIST directory ${response.status}`);
+  const payload = await response.json() as { data?: TradingViewRow[] };
+  return parseTradingViewRows(payload.data ?? []);
+}
+
+export async function fetchTopBistSymbols(
+  interval: BistInterval,
+  limit = 80,
+): Promise<BistDirectory> {
+  const requestedLimit = Math.min(80, Math.max(1, Math.trunc(limit)));
+  const cached = directoryCache.get(interval);
+  if (cached && cached.expiresAt > Date.now()) {
+    return {
+      ...cached.value,
+      symbols: cached.value.symbols.slice(0, requestedLimit),
     };
-    const seen = new Set<string>();
-    const symbols = (payload.data ?? []).flatMap((row): BistSymbol[] => {
-      const values = Array.isArray(row.d) ? row.d : [];
-      const symbol = String(values[0] ?? row.s ?? "")
-        .replace(/^BIST:/, "")
-        .toUpperCase();
-      const close = finiteOr(values[2]);
-      const turnover = finiteOr(values[5]);
-      if (
-        !/^[A-Z0-9]{2,8}$/.test(symbol) ||
-        seen.has(symbol) ||
-        close <= 0 ||
-        turnover <= 0
-      ) return [];
-      seen.add(symbol);
-      const technical = scoreBistTechnical({
-        recommend: finite(values[8]),
-        rsi: finite(values[9]),
-        macd: finite(values[10]),
-        macdSignal: finite(values[11]),
-        close,
-        ema20: finite(values[12]),
-        ema50: finite(values[13]),
-        sma200: finite(values[14]),
-        change: finiteOr(values[3]),
-        relativeVolume: finite(values[15]),
-        adx: finite(values[16]),
-        plusDi: finite(values[17]),
-        minusDi: finite(values[18]),
-      });
-      return [{
-        symbol,
-        name: String(values[1] ?? symbol).slice(0, 120),
-        lastPrice: close,
-        priceChangePercent: finiteOr(values[3]),
-        volume: finiteOr(values[4]),
-        turnover,
-        marketCap: finiteOr(values[6]),
-        sector: String(values[7] ?? "Diğer").slice(0, 80),
-        ...technical,
-      }];
-    }).slice(0, 80);
+  }
+
+  try {
+    const symbols = (await requestTradingViewRows(interval, null)).slice(0, 80);
     if (symbols.length !== 80) throw new Error("BIST top 80 incomplete");
     const value: BistDirectory = {
       symbols,
@@ -405,6 +428,58 @@ export async function fetchTopBistSymbols(
   } catch {
     const fallback = fallbackDirectory(interval);
     return { ...fallback, symbols: fallback.symbols.slice(0, requestedLimit) };
+  }
+}
+
+export async function fetchBistSymbols(
+  interval: BistInterval,
+  symbols: string[],
+): Promise<BistDirectory> {
+  const requestedSymbols = [...new Set(
+    symbols
+      .map((symbol) => symbol.toUpperCase().replace(/[^A-Z0-9]/g, ""))
+      .filter((symbol) => /^[A-Z0-9]{2,8}$/.test(symbol)),
+  )].slice(0, 80);
+  if (!requestedSymbols.length) {
+    return {
+      symbols: [],
+      source: "fallback",
+      interval,
+      fetchedAt: Date.now(),
+      delayedMinutes: 15,
+    };
+  }
+
+  const cacheKey = `${interval}:${[...requestedSymbols].sort().join(",")}`;
+  const cached = targetedDirectoryCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  try {
+    const rows = await requestTradingViewRows(
+      interval,
+      requestedSymbols.map((symbol) => `BIST:${symbol}`),
+    );
+    if (!rows.length) throw new Error("Requested BIST symbols unavailable");
+    const value: BistDirectory = {
+      symbols: rows,
+      source: "tradingview",
+      interval,
+      fetchedAt: Date.now(),
+      delayedMinutes: 15,
+    };
+    targetedDirectoryCache.set(cacheKey, {
+      expiresAt: Date.now() + 45_000,
+      value,
+    });
+    return value;
+  } catch {
+    return {
+      symbols: [],
+      source: "fallback",
+      interval,
+      fetchedAt: Date.now(),
+      delayedMinutes: 15,
+    };
   }
 }
 

@@ -1,5 +1,6 @@
 import {
   BIST_INTERVALS,
+  fetchBistSymbols,
   fetchTopBistSymbols,
   type BistInterval,
 } from "./bist";
@@ -246,7 +247,7 @@ export async function runBistPaperTradingCycle(
   }
 
   try {
-    const [account, openRows, directories] = await Promise.all([
+    const [account, openRows] = await Promise.all([
       db
         .prepare("SELECT * FROM bist_paper_account WHERE id = 1")
         .first<BistPaperAccountRow>(),
@@ -257,13 +258,28 @@ export async function runBistPaperTradingCycle(
            ORDER BY opened_at ASC`,
         )
         .all<BistPaperPositionRow>(),
+    ]);
+    if (!account) throw new Error("BIST paper hesabı oluşturulamadı.");
+
+    const openSymbolsByInterval = new Map<BistInterval, string[]>();
+    for (const position of openRows.results) {
+      if (!BIST_INTERVALS.includes(position.interval as BistInterval)) continue;
+      const interval = position.interval as BistInterval;
+      openSymbolsByInterval.set(interval, [
+        ...(openSymbolsByInterval.get(interval) ?? []),
+        position.symbol,
+      ]);
+    }
+    const [directories, openPositionDirectories] = await Promise.all([
       Promise.all(
-        BIST_INTERVALS.map((interval) =>
-          fetchTopBistSymbols(interval as BistInterval, 80)
+        BIST_INTERVALS.map((interval) => fetchTopBistSymbols(interval, 80)),
+      ),
+      Promise.all(
+        [...openSymbolsByInterval].map(([interval, symbols]) =>
+          fetchBistSymbols(interval, symbols)
         ),
       ),
     ]);
-    if (!account) throw new Error("BIST paper hesabı oluşturulamadı.");
 
     const liveDirectories = directories.filter(
       (directory) => directory.source === "tradingview",
@@ -272,10 +288,14 @@ export async function runBistPaperTradingCycle(
       throw new Error("Canlı gecikmeli BIST puanları alınamadı.");
     }
 
-    const scoreRows = rowsFromDirectories(directories);
-    const leaders = chooseBistPaperLeaders(scoreRows);
+    const leaderRows = rowsFromDirectories(directories);
+    const positionScoreRows = rowsFromDirectories([
+      ...directories,
+      ...openPositionDirectories,
+    ]);
+    const leaders = chooseBistPaperLeaders(leaderRows);
     const scoreByKey = new Map(
-      scoreRows.map((row) => [`${row.symbol}:${row.interval}`, row]),
+      positionScoreRows.map((row) => [`${row.symbol}:${row.interval}`, row]),
     );
     const statements: D1PreparedStatement[] = [];
     const stillOpen: BistPaperPositionRow[] = [];
