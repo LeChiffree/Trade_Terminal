@@ -115,6 +115,10 @@ test("calibrates BIST scores continuously without confidence saturation", async 
     ema50: 99,
     sma200: 92,
     change: 2.1,
+    relativeVolume: 1.8,
+    adx: 34,
+    plusDi: 36,
+    minusDi: 14,
   });
   const moderate = score({
     recommend: 0.55,
@@ -126,6 +130,10 @@ test("calibrates BIST scores continuously without confidence saturation", async 
     ema50: 100,
     sma200: 97,
     change: 0.8,
+    relativeVolume: 1.1,
+    adx: 25,
+    plusDi: 27,
+    minusDi: 18,
   });
   const mixed = score({
     recommend: 0.55,
@@ -137,6 +145,10 @@ test("calibrates BIST scores continuously without confidence saturation", async 
     ema50: 101,
     sma200: 98,
     change: -0.4,
+    relativeVolume: 0.9,
+    adx: 22,
+    plusDi: 16,
+    minusDi: 24,
   });
 
   assert.ok(strong.score > moderate.score);
@@ -144,4 +156,93 @@ test("calibrates BIST scores continuously without confidence saturation", async 
   assert.equal(new Set([strong.score, moderate.score, mixed.score]).size, 3);
   assert.ok(strong.confidence <= 92);
   assert.ok(moderate.confidence < strong.confidence);
+});
+
+test("caps a BIST score when only the correlated trend family is active", async (context) => {
+  const loaded = await loadBistModule();
+  context.after(loaded.cleanup);
+  const result = loaded.module.scoreBistTechnical({
+    recommend: 1,
+    rsi: 50,
+    macd: 1,
+    macdSignal: 1,
+    close: 110,
+    ema20: 100,
+    ema50: 90,
+    sma200: 80,
+    change: 0,
+    relativeVolume: 0,
+    adx: 15,
+    plusDi: 20,
+    minusDi: 20,
+  });
+
+  assert.equal(result.score, 22);
+  assert.ok(result.confidence < 70);
+});
+
+test("requires independent BIST families for high scores", async (context) => {
+  const loaded = await loadBistModule();
+  context.after(loaded.cleanup);
+  const score = loaded.module.scoreBistTechnical;
+  const aligned = score({
+    recommend: 0.8,
+    rsi: 72,
+    macd: 3,
+    macdSignal: 1,
+    close: 110,
+    ema20: 100,
+    ema50: 90,
+    sma200: 80,
+    change: 3.5,
+    relativeVolume: 1.5,
+    adx: 35,
+    plusDi: 40,
+    minusDi: 15,
+  });
+  const conflicting = score({
+    recommend: 0.8,
+    rsi: 28,
+    macd: -1,
+    macdSignal: 1,
+    close: 110,
+    ema20: 100,
+    ema50: 90,
+    sma200: 80,
+    change: -3.5,
+    relativeVolume: 1.5,
+    adx: 35,
+    plusDi: 15,
+    minusDi: 40,
+  });
+
+  assert.ok(aligned.score >= 70);
+  assert.ok(aligned.confidence >= 80);
+  assert.ok(conflicting.score < aligned.score);
+  assert.ok(conflicting.confidence < aligned.confidence);
+});
+
+test("uses TradingView recommendation only as confidence confirmation", async (context) => {
+  const loaded = await loadBistModule();
+  context.after(loaded.cleanup);
+  const score = loaded.module.scoreBistTechnical;
+  const input = {
+    rsi: 62,
+    macd: 2,
+    macdSignal: 1,
+    close: 106,
+    ema20: 102,
+    ema50: 98,
+    sma200: 92,
+    change: 1.8,
+    relativeVolume: 1.4,
+    adx: 30,
+    plusDi: 32,
+    minusDi: 17,
+  };
+  const confirming = score({ ...input, recommend: 0.8 });
+  const opposing = score({ ...input, recommend: -0.8 });
+
+  assert.equal(confirming.score, opposing.score);
+  assert.ok(confirming.confidence > opposing.confidence);
 });

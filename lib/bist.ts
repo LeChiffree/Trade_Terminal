@@ -57,6 +57,19 @@ type TechnicalInputs = {
   ema50: number | null;
   sma200: number | null;
   change: number;
+  relativeVolume: number | null;
+  adx: number | null;
+  plusDi: number | null;
+  minusDi: number | null;
+};
+
+type BistScoreFamily = "Trend" | "Momentum" | "Hacim" | "Yapı";
+
+const BIST_SCORING_WEIGHTS: Record<BistScoreFamily, number> = {
+  Trend: 0.30,
+  Momentum: 0.22,
+  Hacim: 0.20,
+  Yapı: 0.12,
 };
 
 const INTERVAL_SET = new Set<string>(BIST_INTERVALS);
@@ -130,31 +143,26 @@ export function scoreBistTechnical(input: TechnicalInputs) {
     right === null || right === 0
       ? null
       : clamp((((left - right) / Math.abs(right)) * 100) / scalePercent, -1, 1);
-  const components: Array<{ value: number; weight: number }> = [];
-  const add = (value: number | null, weight: number) => {
-    if (value !== null && Number.isFinite(value)) {
-      components.push({ value: clamp(value, -1, 1), weight });
-    }
+  const averageAvailable = (values: Array<number | null>) => {
+    const available = values.filter(
+      (value): value is number => value !== null && Number.isFinite(value),
+    );
+    return available.length
+      ? available.reduce((total, value) => total + value, 0) / available.length
+      : null;
   };
 
-  // TradingView's recommendation is useful, but it must not dominate every
-  // other family. Relative distances keep the result continuous instead of
-  // handing out the same binary +8/+10 bonuses to most bullish shares.
-  add(input.recommend, 34);
-  add(relative(input.close, input.ema20, 4), 14);
-  add(
+  // Correlated moving-average signals are averaged inside one Trend family.
+  // TradingView Recommend.All is deliberately excluded from the raw score
+  // because it already contains EMA, RSI and MACD evidence; adding it again
+  // was the main source of inflated BIST scores.
+  const trend = averageAvailable([
+    relative(input.close, input.ema20, 4),
     input.ema20 === null ? null : relative(input.ema20, input.ema50, 5),
-    12,
-  );
-  add(
     input.ema50 === null ? null : relative(input.ema50, input.sma200, 9),
-    10,
-  );
-  add(
+  ]);
+  const momentum = averageAvailable([
     input.rsi === null ? null : clamp((input.rsi - 50) / 22, -1, 1),
-    10,
-  );
-  add(
     input.macd === null || input.macdSignal === null || input.close === 0
       ? null
       : clamp(
@@ -162,42 +170,90 @@ export function scoreBistTechnical(input: TechnicalInputs) {
           -1,
           1,
         ),
-    14,
-  );
-  add(clamp(input.change / 3.5, -1, 1), 6);
+  ]);
+  const priceAction = clamp(input.change / 3.5, -1, 1);
+  const volume = input.relativeVolume === null
+    ? null
+    : priceAction * clamp(input.relativeVolume / 1.5, 0, 1);
+  const structure =
+    input.adx === null || input.plusDi === null || input.minusDi === null
+      ? null
+      : clamp((input.plusDi - input.minusDi) / 25, -1, 1) *
+        clamp((input.adx - 15) / 20, 0, 1);
 
-  const score = components.reduce(
-    (total, component) => total + component.value * component.weight,
+  const familyScores: Partial<Record<BistScoreFamily, number>> = {
+    ...(trend === null ? {} : { Trend: trend * 100 }),
+    ...(momentum === null ? {} : { Momentum: momentum * 100 }),
+    ...(volume === null ? {} : { Hacim: volume * 100 }),
+    ...(structure === null ? {} : { Yapı: structure * 100 }),
+  };
+  const availableFamilies = Object.entries(familyScores) as Array<
+    [BistScoreFamily, number]
+  >;
+  const rawScore = availableFamilies.reduce(
+    (total, [family, value]) => total + value * BIST_SCORING_WEIGHTS[family],
     0,
   );
-  const roundedScore = Math.round(clamp(score, -100, 100));
-  const availableWeight = components.reduce(
-    (total, component) => total + component.weight,
+  const rawDirection = Math.sign(rawScore);
+  const activeFamilies = availableFamilies.filter(
+    ([, value]) => Math.abs(value) >= 12,
+  );
+  const confirmingFamilies = activeFamilies.filter(
+    ([, value]) => Math.sign(value) === rawDirection,
+  );
+  const opposingFamilies = activeFamilies.filter(
+    ([, value]) => Math.sign(value) === -rawDirection,
+  );
+
+  // Match the crypto scorer's evidence ladder: one active family cannot
+  // create a paper-trade score by itself. Higher ranges require independent
+  // families to agree, and Trend must participate for scores above 48.
+  let evidenceCap = 22;
+  if (confirmingFamilies.length >= 2) evidenceCap = 42;
+  if (confirmingFamilies.length >= 3) evidenceCap = 58;
+  if (confirmingFamilies.length >= 4) evidenceCap = 85;
+  if (!confirmingFamilies.some(([family]) => family === "Trend")) {
+    evidenceCap = Math.min(evidenceCap, 48);
+  }
+  if (opposingFamilies.length >= 2) evidenceCap = Math.min(evidenceCap, 48);
+
+  const roundedScore = Math.round(
+    rawDirection * Math.min(Math.abs(rawScore), evidenceCap),
+  );
+  const activeStrength = activeFamilies.reduce(
+    (total, [, value]) => total + Math.abs(value),
     0,
   );
-  const active = components.filter((component) => Math.abs(component.value) >= 0.08);
-  const positiveEvidence = active.reduce(
-    (total, component) =>
-      total + (component.value > 0 ? Math.abs(component.value * component.weight) : 0),
+  const matchingStrength = confirmingFamilies.reduce(
+    (total, [, value]) => total + Math.abs(value),
     0,
   );
-  const negativeEvidence = active.reduce(
-    (total, component) =>
-      total + (component.value < 0 ? Math.abs(component.value * component.weight) : 0),
-    0,
-  );
-  const directionalEvidence = positiveEvidence + negativeEvidence;
-  const agreement = directionalEvidence
-    ? Math.max(positiveEvidence, negativeEvidence) / directionalEvidence
+  const agreement = activeStrength ? matchingStrength / activeStrength : 0.5;
+  const coverage = availableFamilies.length / 4;
+  const recommend = input.recommend === null
+    ? 0
+    : clamp(input.recommend, -1, 1);
+  const recommendAdjustment =
+    rawDirection === 0 || Math.abs(recommend) < 0.08
+      ? 0
+      : Math.sign(recommend) === rawDirection
+        ? 3
+        : -5;
+  const confidence = availableFamilies.length
+    ? Math.round(
+        clamp(
+          32 +
+            Math.abs(roundedScore) * 0.38 +
+            confirmingFamilies.length * 5 +
+            agreement * 12 -
+            opposingFamilies.length * 5 +
+            coverage * 4 +
+            recommendAdjustment,
+          32,
+          92,
+        ),
+      )
     : 0;
-  const coverage = availableWeight / 100;
-  const confidence = Math.round(
-    clamp(
-      24 + coverage * 24 + agreement * 22 + Math.min(60, Math.abs(score)) * 0.32,
-      0,
-      92,
-    ),
-  );
   const direction =
     roundedScore >= 20
       ? "long"
@@ -259,6 +315,10 @@ export async function fetchTopBistSymbols(
     `EMA20${suffix}`,
     `EMA50${suffix}`,
     `SMA200${suffix}`,
+    "relative_volume_10d_calc",
+    `ADX${suffix}`,
+    `ADX+DI${suffix}`,
+    `ADX-DI${suffix}`,
   ];
   try {
     const response = await fetch("https://scanner.tradingview.com/turkey/scan", {
@@ -312,6 +372,10 @@ export async function fetchTopBistSymbols(
         ema50: finite(values[13]),
         sma200: finite(values[14]),
         change: finiteOr(values[3]),
+        relativeVolume: finite(values[15]),
+        adx: finite(values[16]),
+        plusDi: finite(values[17]),
+        minusDi: finite(values[18]),
       });
       return [{
         symbol,
